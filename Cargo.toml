@@ -1,0 +1,28 @@
+[package]
+name = "async_acme"
+version = "0.1.0"
+authors = ["conblem <ramonwehrli@gmail.com>"]
+edition = "2018"
+
+[[bin]]
+name = "async_acme"
+required-features = ["build-binary"]
+
+[lib]
+name = "async_acme"
+
+[dependencies]
+reqwest = { version = "0.10", default-features = false, features = ["rustls-tls", "json"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tokio = { version = "0.2", features = [] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.2", optional = true }
+thiserror = "1"
+ring = { version = "0.16", features = ["std"] }
+base64 = "0.13"
+bytes = "0.5"
+
+[features]
+trust-dns = ["reqwest/trust-dns"]
+build-binary = ["tokio/macros", "tracing-subscriber", "reqwest/trust-dns"]
