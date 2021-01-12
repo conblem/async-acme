@@ -1,13 +1,12 @@
+use reqwest::header::HeaderValue;
+use reqwest::Client;
+use serde::ser::Error as SerError;
+use serde::{Deserialize, Serialize, Serializer};
+use std::fmt::Debug;
 use thiserror::Error;
 use tokio::io;
 
-use bytes::Bytes;
-use dto::ApiDirectory;
-use reqwest::header::{HeaderValue, ToStrError};
-use reqwest::Client;
-use serde::ser::Error as SerError;
-use serde::{Serialize, Serializer};
-use std::fmt::Debug;
+use dto::{ApiDirectory, ApiAccount, ApiAccountStatus};
 
 mod dto;
 mod jws;
@@ -23,11 +22,15 @@ pub(super) enum Error {
 
     #[error("API did not return Nonce")]
     NoNonce,
+
+    #[error("Nonce was not UTF 8 Compatible")]
+    NonceFormatting,
 }
 
 #[derive(Debug)]
 pub(super) struct Directory {
     directory: ApiDirectory,
+    client: Client,
 }
 
 impl Directory {
@@ -39,12 +42,16 @@ impl Directory {
     pub(super) async fn from_url(url: &str) -> Result<Directory, Error> {
         let directory: ApiDirectory = reqwest::get(url).await?.json().await?;
 
-        Ok(Directory { directory })
+        Ok(Directory {
+            directory,
+            client: Client::new(),
+        })
     }
 
     // todo: make private
-    async fn get_nonce(&self) -> Result<impl Serialize, Error> {
-        let header = Client::new()
+    async fn get_nonce(&self) -> Result<String, Error> {
+        let header = self
+            .client
             .head(&self.directory.new_nonce)
             .send()
             .await?
@@ -52,20 +59,14 @@ impl Directory {
             .remove(Directory::REPLACE_NONCE_HEADER)
             .ok_or_else(|| Error::NoNonce)?;
 
-        Ok(HeaderValueHelper(header))
+        header
+            .to_str()
+            .map_err(|_| Error::NonceFormatting)
+            .map(str::to_owned)
     }
-}
 
-struct HeaderValueHelper(HeaderValue);
-
-impl Serialize for HeaderValueHelper {
-    fn serialize<S>(&self, serializer: S) -> Result<<S as Serializer>::Ok, <S as Serializer>::Error>
-    where
-        S: Serializer,
-    {
-        match self.0.to_str() {
-            Ok(output) => serializer.serialize_str(output),
-            Err(e) => Err(SerError::custom(e)),
-        }
+    async fn new_account(&self, tos: bool) {
+        let account = ApiAccount::new(vec![]);
+        self.client.post(&self.directory.new_account);
     }
 }

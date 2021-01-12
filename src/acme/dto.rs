@@ -1,5 +1,4 @@
-use serde::de::Error as SerdeError;
-use serde::{Deserialize, Deserializer, Serialize, Serializer};
+use serde::{Deserialize, Serialize};
 
 const fn default_false() -> bool {
     false
@@ -28,52 +27,32 @@ pub(super) struct ApiMeta {
     external_account_required: bool,
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Default)]
 #[serde(rename_all = "camelCase")]
 pub(super) struct ApiAccount {
-    status: ApiAccountStatus,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    status: Option<ApiAccountStatus>,
     #[serde(default)]
     contact: Vec<String>,
     #[serde(default = "default_false")]
     terms_of_service_agreed: bool,
-    orders: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    orders: Option<String>,
 }
 
-#[derive(Serialize, Deserialize, Debug)]
-#[serde(rename_all = "camelCase", remote = "ApiAccountStatus")]
-enum ApiAccountStatus {
-    Valid,
-    Deactivated,
-    Revoked,
-}
-
-// todo: absolutely not needed
-impl<'de> Deserialize<'de> for ApiAccountStatus {
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-    where
-        D: Deserializer<'de>,
-    {
-        let status = String::deserialize(deserializer)?;
-        match status.as_str() {
-            "valid" => Ok(ApiAccountStatus::Valid),
-            "deactivated" => Ok(ApiAccountStatus::Deactivated),
-            "revoked" => Ok(ApiAccountStatus::Revoked),
-            _ => Err(SerdeError::custom("Invalid ApiAccountStatus")),
+impl ApiAccount {
+    pub(super) fn new(contact: Vec<String>) -> Self {
+        ApiAccount {
+            contact,
+            ..Default::default()
         }
     }
 }
 
-// todo: absolutely not needed
-impl Serialize for ApiAccountStatus {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: Serializer,
-    {
-        let status = match self {
-            ApiAccountStatus::Valid => "valid",
-            ApiAccountStatus::Revoked => "revoked",
-            ApiAccountStatus::Deactivated => "deactivated",
-        };
-        serializer.serialize_str(status)
-    }
+#[derive(Serialize, Deserialize, Debug)]
+#[serde(rename_all = "camelCase")]
+pub(super) enum ApiAccountStatus {
+    Valid,
+    Deactivated,
+    Revoked,
 }
