@@ -3,9 +3,7 @@ use reqwest::Client;
 use ring::error::{KeyRejected, Unspecified};
 use ring::pkcs8::Document;
 use ring::rand::SystemRandom;
-use ring::signature::{
-    EcdsaKeyPair, KeyPair, Signature, ECDSA_P256_SHA256_ASN1_SIGNING,
-};
+use ring::signature::{EcdsaKeyPair, KeyPair, Signature, ECDSA_P256_SHA256_ASN1_SIGNING, ECDSA_P256_SHA256_FIXED_SIGNING};
 use serde::ser::{Error as SerError, SerializeStruct};
 use serde::{Serialize, Serializer};
 use std::error::Error as StdError;
@@ -131,7 +129,6 @@ impl<C: Crypto> Directory<C> {
             .json(&body)
             .build()?;
 
-        println!("{:?}", str::from_utf8(request.body().unwrap().as_bytes().unwrap()).unwrap());
         request.headers_mut().insert(CONTENT_TYPE, HeaderValue::from_static(APPLICATION_JOSE_JSON));
         let error = self.client.execute(request).await?.text().await?;
         println!("{}", error);
@@ -186,7 +183,7 @@ pub(super) trait Crypto: Debug {
         keypair: &Self::KeyPair,
         data: T,
     ) -> Result<Self::Signature, Self::Error>;
-
+    fn set_kid(&self, keypair: &mut Self::KeyPair, kid: String);
     fn algorithm(&self, keypair: &Self::KeyPair) -> &'static str;
 }
 
@@ -209,10 +206,27 @@ impl Crypto for TestCrypto {
     type Error = KeyPairError;
 
     fn generate_key(&self) -> Result<Self::KeyPair, Self::Error> {
-        let document = EcdsaKeyPair::generate_pkcs8(&ECDSA_P256_SHA256_ASN1_SIGNING, &self.random)?;
-        let pair = EcdsaKeyPair::from_pkcs8(&ECDSA_P256_SHA256_ASN1_SIGNING, document.as_ref())?;
+        let document = EcdsaKeyPair::generate_pkcs8(&ECDSA_P256_SHA256_FIXED_SIGNING, &self.random)?;
+        let document = document.as_ref();
+        let pair = EcdsaKeyPair::from_pkcs8(&ECDSA_P256_SHA256_FIXED_SIGNING, document)?;
 
-        Ok(RingKeyPair { document, pair })
+        let mut data = Vec::with_capacity(1 + document.len());
+        data.insert(0, document.len() as u8);
+        data.extend_from_slice(document);
+
+        // check if public key is has correct length and is uncompressed
+        // https://tools.ietf.org/html/rfc5480#section-2.2
+        let public = pair.public_key().as_ref();
+        match public.len() {
+            65 => {},
+            len => Err(KeyPairError::InvalidPublicLen(len))?
+        }
+        match public[0] {
+            4 => {},
+            invalidOctet => Err(KeyPairError::InvalidFirstOctetInPublic(invalidOctet))?
+        }
+
+        Ok(RingKeyPair { data, pair })
     }
 
     fn sign<T: AsRef<[u8]>>(
@@ -224,13 +238,18 @@ impl Crypto for TestCrypto {
         Ok(RingSignature(signature))
     }
 
+    fn set_kid(&self, keypair: &mut Self::KeyPair, kid: String) {
+        keypair.data.extend_from_slice(kid.as_bytes());
+    }
+
     fn algorithm(&self, keypair: &Self::KeyPair) -> &'static str {
         "ES256"
     }
 }
 
 pub(super) struct RingKeyPair {
-    document: Document,
+    // first octet is the length of the public key the remaining bytes are the kid if any
+    data: Vec<u8>,
     pair: EcdsaKeyPair,
 }
 
@@ -239,13 +258,26 @@ impl Serialize for RingKeyPair {
     where
         S: Serializer,
     {
-        let mut serializer = serializer.serialize_struct("RingKeyPair", 2)?;
+        let len = self.data[0] as usize + 1;
+        if len != self.data.len() {
+            let kid = &self.data[len..];
+            let kid = unsafe { str::from_utf8_unchecked(kid) };
+            return serializer.serialize_str(kid)
+        }
 
+        let mut serializer = serializer.serialize_struct("RingKeyPair", 4)?;
+
+        serializer.serialize_field("kty", "EC")?;
         serializer.serialize_field("crv", "P-256")?;
 
-        let public =
-            base64::encode_config(self.pair.public_key().as_ref(), base64::URL_SAFE_NO_PAD);
-        serializer.serialize_field("x", &public)?;
+        let public = self.pair.public_key().as_ref();
+        let (x, y) = public.split_at(33);
+
+        let x = base64::encode_config(&x[1..], base64::URL_SAFE_NO_PAD);
+        serializer.serialize_field("x", &x)?;
+
+        let y = base64::encode_config(y, base64::URL_SAFE_NO_PAD);
+        serializer.serialize_field("y", &y)?;
 
         serializer.end()
     }
@@ -253,7 +285,13 @@ impl Serialize for RingKeyPair {
 
 impl AsRef<[u8]> for RingKeyPair {
     fn as_ref(&self) -> &[u8] {
-        self.document.as_ref()
+        &self.data
+    }
+}
+
+impl From<Vec<u8>> for RingKeyPair {
+    fn from(_: Vec<u8>) -> Self {
+        unimplemented!()
     }
 }
 
@@ -267,6 +305,12 @@ pub(super) enum KeyPairError {
 
     #[error("Invalid Signature")]
     Signature(#[from] Utf8Error),
+
+    #[error("First octet of Public Key has invalid value: {0}")]
+    InvalidFirstOctetInPublic(u8),
+
+    #[error("Public Key has invalid lenght of: {0}")]
+    InvalidPublicLen(usize)
 }
 
 pub(super) struct RingSignature(Signature);
