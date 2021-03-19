@@ -12,17 +12,24 @@ required-features = ["build-binary"]
 name = "async_acme"
 
 [dependencies]
-reqwest = { version = "0.11", default-features = false, features = ["rustls-tls", "json"] }
+tokio = { version = "1.0", default-features = false }
+reqwest = { version = "0.11", default-features = false, features = ["json"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-tokio = { version = "1.0", features = [] }
 tracing = "0.1"
-tracing-subscriber = { version = "0.2", optional = true }
 thiserror = "1"
-ring = { version = "0.16", features = ["std"] }
 base64 = "0.13"
 bytes = "1.0"
 
+ring = { version = "0.16", optional = true, default-features = false, features = ["std"] }
+openssl = { version = "0.10", optional = true, default-features = false }
+
+tracing-subscriber = { version = "0.2", optional = true }
+
 [features]
-trust-dns = ["reqwest/trust-dns"]
-build-binary = ["tokio/macros", "tracing-subscriber", "reqwest/trust-dns"]
+default = ["ring", "reqwest/rustls-tls"]
+native-tls = ["reqwest/default-tls", "openssl"]
+
+build-binary = ["tokio/macros", "tokio/rt-multi-thread", "tracing-subscriber"]
+# todo: figure out how to handle trust dns even needed?
+# trust-dns = ["reqwest/trust-dns"]

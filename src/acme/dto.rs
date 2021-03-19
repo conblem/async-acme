@@ -41,9 +41,10 @@ pub(super) struct ApiAccount {
 }
 
 impl ApiAccount {
-    pub(super) fn new(contact: Vec<String>) -> Self {
+    pub(super) fn new(contact: Vec<String>, terms_of_service_agreed: bool) -> Self {
         ApiAccount {
             contact,
+            terms_of_service_agreed,
             ..Default::default()
         }
     }
