@@ -11,5 +11,4 @@ async fn main() {
 
     let dir = Directory::from_url(Directory::LE_STAGING).await.unwrap();
     dir.new_account(true).await.unwrap();
-    println!("{:?}", dir);
 }

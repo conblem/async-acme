@@ -1,7 +1,7 @@
 [package]
 name = "async_acme"
 version = "0.1.0"
-authors = ["conblem <ramonwehrli@gmail.com>"]
+authors = ["conblem <mail@conblem.me>"]
 edition = "2018"
 
 [[bin]]
@@ -13,24 +13,39 @@ name = "async_acme"
 
 [dependencies]
 tokio = { version = "1.0", default-features = false }
-reqwest = { version = "0.11", default-features = false, features = ["json"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 tracing = "0.1"
 thiserror = "1"
 base64 = "0.13"
 bytes = "1.0"
+async-trait = "0.1"
 
+# rustls feature
 ring = { version = "0.16", optional = true, default-features = false, features = ["std"] }
-
+# native-tls feature
 openssl = { version = "0.10", optional = true, default-features = false }
 
+hyper = { version = "0.14", default-features = false, features = ["client", "http1", "runtime"] }
+# reqwest feature
+reqwest = { version = "0.11", optional = true, default-features = false, features = ["json"] }
+# self implemented
+tokio-rustls = { version = "0.22", optional = true, default-features = false }
+tokio-native-tls = { version = "0.3", optional = true, default-features = false }
+
+
+# binary dep
 tracing-subscriber = { version = "0.2", optional = true }
 
 [features]
-default = ["ring", "reqwest/rustls-tls"]
-native-tls = ["reqwest/default-tls", "openssl"]
+default = ["reqwest-rustls", "__reqwest"]
+
+# move to dedicated feature
+rustls = ["ring", "tokio-rustls", "tokio/net"]
+native-tls = ["openssl", "tokio-native-tls", "tokio/net"]
+
+reqwest-rustls = ["__reqwest", "ring", "reqwest/rustls-tls"]
+reqwest-native-tls = ["__reqwest", "openssl", "reqwest/default-tls"]
+__reqwest = []
 
 build-binary = ["tokio/macros", "tokio/rt-multi-thread", "tracing-subscriber"]
-# todo: figure out how to handle trust dns even needed?
-# trust-dns = ["reqwest/trust-dns"]

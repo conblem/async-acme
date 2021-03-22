@@ -6,19 +6,19 @@ const fn default_false() -> bool {
 
 #[derive(Serialize, Deserialize, Debug)]
 #[serde(rename_all = "camelCase")]
-pub(super) struct ApiDirectory {
-    pub(super) new_nonce: String,
-    pub(super) new_account: String,
-    pub(super) new_order: String,
-    pub(super) new_authz: Option<String>,
-    pub(super) revoke_cert: String,
-    pub(super) key_change: String,
-    pub(super) meta: Option<ApiMeta>,
+pub(crate) struct ApiDirectory {
+    pub(crate) new_nonce: String,
+    pub(crate) new_account: String,
+    pub(crate) new_order: String,
+    pub(crate) new_authz: Option<String>,
+    pub(crate) revoke_cert: String,
+    pub(crate) key_change: String,
+    pub(crate) meta: Option<ApiMeta>,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
 #[serde(rename_all = "camelCase")]
-pub(super) struct ApiMeta {
+pub(crate) struct ApiMeta {
     terms_of_service: Option<String>,
     website: Option<String>,
     #[serde(default)]
@@ -29,7 +29,7 @@ pub(super) struct ApiMeta {
 
 #[derive(Serialize, Deserialize, Debug, Default)]
 #[serde(rename_all = "camelCase")]
-pub(super) struct ApiAccount {
+pub(crate) struct ApiAccount {
     #[serde(skip_serializing_if = "Option::is_none")]
     status: Option<ApiAccountStatus>,
     #[serde(default)]
@@ -41,7 +41,7 @@ pub(super) struct ApiAccount {
 }
 
 impl ApiAccount {
-    pub(super) fn new(contact: Vec<String>, terms_of_service_agreed: bool) -> Self {
+    pub(crate) fn new(contact: Vec<String>, terms_of_service_agreed: bool) -> Self {
         ApiAccount {
             contact,
             terms_of_service_agreed,
@@ -52,7 +52,7 @@ impl ApiAccount {
 
 #[derive(Serialize, Deserialize, Debug)]
 #[serde(rename_all = "camelCase")]
-pub(super) enum ApiAccountStatus {
+pub(crate) enum ApiAccountStatus {
     Valid,
     Deactivated,
     Revoked,
