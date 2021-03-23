@@ -26,6 +26,22 @@ pub(crate) enum RepoError {
     #[cfg(feature = "__reqwest")]
     #[error("Reqwest error")]
     Reqwest(#[from] ::reqwest::Error),
+
+    #[cfg(not(feature = "__reqwest"))]
+    #[error("Self implemented HTTPS error")]
+    HTTPS(#[from] self::hyper::HTTPSError),
+
+    #[cfg(not(feature = "__reqwest"))]
+    #[error("Hyper error")]
+    Hyper(#[from] ::hyper::Error),
+
+    #[cfg(not(feature = "__reqwest"))]
+    #[error("Http error")]
+    Http(#[from] ::hyper::http::Error),
+
+    #[cfg(not(feature = "__reqwest"))]
+    #[error("Serde error")]
+    Serde(#[from] serde_json::Error),
 }
 
 pub(crate) struct Nonce(HeaderValue);

@@ -31,6 +31,7 @@ hyper = { version = "0.14", default-features = false, features = ["client", "htt
 reqwest = { version = "0.11", optional = true, default-features = false, features = ["json"] }
 # self implemented
 tokio-rustls = { version = "0.22", optional = true, default-features = false }
+webpki-roots = {version = "0.21.0", optional = true, default-features = false }
 tokio-native-tls = { version = "0.3", optional = true, default-features = false }
 
 
@@ -41,7 +42,7 @@ tracing-subscriber = { version = "0.2", optional = true }
 default = ["reqwest-rustls", "__reqwest"]
 
 # move to dedicated feature
-rustls = ["ring", "tokio-rustls", "tokio/net"]
+rustls = ["ring", "tokio-rustls", "tokio/net", "webpki-roots"]
 native-tls = ["openssl", "tokio-native-tls", "tokio/net"]
 
 reqwest-rustls = ["__reqwest", "ring", "reqwest/rustls-tls"]
