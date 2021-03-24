@@ -1,15 +1,10 @@
-use hyper::body::to_bytes;
 use hyper::client::connect::{Connected, Connection};
-use hyper::header::{HeaderName, CONTENT_TYPE};
 use hyper::service::Service;
-use hyper::{Body, Client, Request, Uri};
-use serde::Serialize;
+use hyper::Uri;
 use std::future::Future;
 use std::io;
-use std::net::SocketAddr;
 use std::ops::{Deref, DerefMut};
 use std::pin::Pin;
-use std::str::{FromStr, from_utf8};
 use std::sync::Arc;
 use std::task::{Context, Poll};
 use thiserror::Error;
@@ -19,66 +14,6 @@ use tokio_rustls::rustls::ClientConfig;
 use tokio_rustls::webpki::{DNSNameRef, InvalidDNSNameError};
 use tokio_rustls::TlsConnector;
 use webpki_roots::TLS_SERVER_ROOTS;
-use hyper::http::HeaderValue;
-
-use super::{Nonce, RepoError, REPLAY_NONCE_HEADER, APPLICATION_JOSE_JSON};
-use crate::acme::dto::ApiDirectory;
-use crate::acme::SignedRequest;
-
-#[derive(Debug)]
-pub(crate) struct HyperRepo {
-    client: Client<HTTPSConnector>,
-    replay_nonce_header: HeaderName,
-    application_jose_json: HeaderValue
-}
-
-impl HyperRepo {
-    pub(crate) fn new() -> Self {
-        HyperRepo {
-            client: Client::builder().build(HTTPSConnector::new()),
-            replay_nonce_header: HeaderName::from_static(REPLAY_NONCE_HEADER),
-            application_jose_json: HeaderValue::from_static(APPLICATION_JOSE_JSON)
-        }
-    }
-
-    pub(crate) async fn get_nonce(&self, url: &str) -> Result<Nonce, RepoError> {
-        let request = Request::head(url).body(Body::empty())?;
-        let mut response = self.client.request(request).await?;
-
-        let header = response
-            .headers_mut()
-            .remove(&self.replay_nonce_header)
-            .ok_or_else(|| RepoError::NoNonce)?;
-
-        Ok(header.into())
-    }
-
-    pub(crate) async fn get_directory(&self, url: &str) -> Result<ApiDirectory, RepoError> {
-        let request = Request::get(url).body(Body::empty())?;
-        let mut response = self.client.request(request).await?;
-        let body = to_bytes(response.body_mut()).await?;
-        Ok(serde_json::from_slice(body.as_ref())?)
-    }
-
-    pub(crate) async fn crate_account<S: Serialize>(
-        &self,
-        url: &str,
-        body: &SignedRequest<S>,
-    ) -> Result<(), RepoError> {
-        let body = serde_json::to_vec(body)?;
-        let mut request = Request::post(url).body(body.into())?;
-
-        request.headers_mut().insert(CONTENT_TYPE, self.application_jose_json.clone());
-        let mut response = self.client.request(request).await?;
-        let body = to_bytes(response.body_mut()).await?;
-
-        // todo: remove
-        let body = from_utf8(body.as_ref()).unwrap();
-        println!("{}", body);
-
-        Ok(())
-    }
-}
 
 #[derive(Error, Debug)]
 pub(crate) enum HTTPSError {
@@ -101,11 +36,12 @@ pub(crate) struct HTTPSConnector {
 }
 
 impl HTTPSConnector {
-    fn new() -> Self {
+    pub(crate) fn new() -> Self {
         let mut config = ClientConfig::new();
         config
             .root_store
             .add_server_trust_anchors(&TLS_SERVER_ROOTS);
+
         HTTPSConnector {
             config: Arc::new(config),
         }
@@ -146,7 +82,7 @@ impl Service<Uri> for HTTPSConnector {
     type Future = Pin<Box<dyn Future<Output = Result<Self::Response, Self::Error>> + Send + Sync>>;
 
     // todo: maybe do something
-    fn poll_ready(&mut self, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
+    fn poll_ready(&mut self, _cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
         Poll::Ready(Ok(()))
     }
 

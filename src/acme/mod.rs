@@ -1,3 +1,5 @@
+use hyper::body::to_bytes;
+use hyper::{Body, Client, Request};
 use serde::ser::Error as SerError;
 use serde::{Serialize, Serializer};
 use std::fmt::Debug;
@@ -5,15 +7,16 @@ use std::io;
 use std::str;
 use thiserror::Error;
 
-use crate::acme::repo::Nonce;
 use dto::{ApiAccount, ApiDirectory};
+use hyper::header::{HeaderName, HeaderValue};
+use hyper::http;
 use jws::{Crypto, TestCrypto};
-use repo::{Repo, RepoError};
+use tls::HTTPSConnector;
 
 mod dto;
 mod jws;
 mod persist;
-mod repo;
+mod tls;
 
 #[derive(Error, Debug)]
 pub(super) enum DirectoryError<C: Crypto> {
@@ -27,26 +30,44 @@ pub(super) enum DirectoryError<C: Crypto> {
     #[error("JSON Error")]
     Json(#[from] serde_json::Error),
 
-    #[error("Repo Error")]
-    RepoError(#[from] RepoError),
+    #[error("Hyper Error")]
+    Hyper(#[from] hyper::Error),
+
+    #[error("HTTP Error")]
+    HTTP(#[from] http::Error),
+
+    #[error("API returned no noce")]
+    NoNonce
 }
 
 #[derive(Debug)]
 pub(super) struct Directory<C> {
     directory: ApiDirectory,
-    repo: Repo,
+    client: Client<HTTPSConnector>,
     crypto: C,
+    application_jose_json: HeaderValue,
+    replay_nonce_header: HeaderName,
 }
+
+const APPLICATION_JOSE_JSON: &str = "application/jose+json";
+const REPLAY_NONCE_HEADER: &str = "replay-nonce";
 
 impl Directory<TestCrypto> {
     pub(super) async fn from_url(url: &str) -> Result<Self, DirectoryError<TestCrypto>> {
-        let repo = Repo::new();
-        let directory = repo.get_directory(url).await?;
+        let client = Client::builder().build(HTTPSConnector::new());
+        let req = Request::get(url).body(Body::empty())?;
+
+        let mut res = client.request(req).await?;
+        let body = to_bytes(res.body_mut()).await?;
+
+        let directory = serde_json::from_slice(body.as_ref())?;
 
         Ok(Directory {
             directory,
-            repo,
+            client,
             crypto: TestCrypto::new(),
+            application_jose_json: HeaderValue::from_static(APPLICATION_JOSE_JSON),
+            replay_nonce_header: HeaderName::from_static(REPLAY_NONCE_HEADER),
         })
     }
 
@@ -55,9 +76,18 @@ impl Directory<TestCrypto> {
 }
 
 impl<C: Crypto> Directory<C> {
+    async fn get_nonce(&self) -> Result<Nonce, DirectoryError<C>> {
+        let req = Request::head(&self.directory.new_nonce).body(Body::empty())?;
+        let mut res = self.client.request(req).await?;
+
+        res.headers_mut()
+            .remove(&self.replay_nonce_header)
+            .map(Nonce)
+            .ok_or_else(|| DirectoryError::NoNonce)
+    }
+
     pub(super) async fn new_account(&self, tos: bool) -> Result<(), DirectoryError<C>> {
-        let dir = &self.directory;
-        let nonce = self.repo.get_nonce(&dir.new_nonce).await?;
+        let nonce = self.get_nonce().await?;
 
         let keypair = match self.crypto.generate_key() {
             Err(err) => Err(DirectoryError::Crypto(err))?,
@@ -92,8 +122,24 @@ impl<C: Crypto> Directory<C> {
             signature,
         };
 
-        self.repo.crate_account(&dir.new_account, &body).await?;
+        let body = Body::from(serde_json::to_vec(&body)?);
+        let req = Request::post(&self.directory.new_account).body(body)?;
+        let res = self.client.request(req).await?;
+        println!("{:?}", res.body());
+
         Ok(())
+    }
+}
+
+struct Nonce(HeaderValue);
+
+impl Serialize for Nonce {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error> where
+        S: Serializer {
+        match self.0.to_str() {
+            Ok(str) => serializer.serialize_str(str),
+            Err(e) => Err(SerError::custom(e))
+        }
     }
 }
 
@@ -110,18 +156,4 @@ pub(crate) struct SignedRequest<S: Serialize> {
     protected: String,
     payload: String,
     signature: S,
-}
-
-fn base64url<D: Serialize, S>(data: &D, serializer: S) -> Result<S::Ok, S::Error>
-where
-    S: Serializer,
-{
-    let data = match serde_json::to_string(data) {
-        Err(err) => Err(SerError::custom(err))?,
-        Ok(data) => data,
-    };
-
-    let data = base64::encode_config(data, base64::URL_SAFE_NO_PAD);
-
-    serializer.serialize_str(&data)
 }

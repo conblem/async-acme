@@ -170,9 +170,6 @@ pub enum KeyPairError {
 
     #[error("Public Key has invalid lenght of: {0}")]
     InvalidPublicLen(usize),
-
-    #[error("{0}")]
-    Other(String),
 }
 
 pub struct RingSignature(Signature);
