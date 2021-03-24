@@ -40,6 +40,7 @@ default = ["rustls"]
 
 # move to dedicated feature
 rustls = ["ring", "tokio-rustls", "webpki-roots"]
-native-tls = ["openssl", "tokio-native-tls"]
+# todo: change jws logic to openssl
+native-tls = ["ring", "tokio-native-tls"]
 
 build-binary = ["tokio/macros", "tokio/rt-multi-thread", "tracing-subscriber"]

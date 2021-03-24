@@ -11,7 +11,7 @@ use dto::{ApiAccount, ApiDirectory};
 use hyper::header::{HeaderName, HeaderValue};
 use hyper::http;
 use jws::{Crypto, TestCrypto};
-use tls::HTTPSConnector;
+use tls::{HTTPSConnector, HTTPSError};
 
 mod dto;
 mod jws;
@@ -37,7 +37,10 @@ pub(super) enum DirectoryError<C: Crypto> {
     HTTP(#[from] http::Error),
 
     #[error("API returned no noce")]
-    NoNonce
+    NoNonce,
+
+    #[error("HTTPS Connector Error")]
+    HTTPSConnector(#[from] HTTPSError),
 }
 
 #[derive(Debug)]
@@ -54,7 +57,8 @@ const REPLAY_NONCE_HEADER: &str = "replay-nonce";
 
 impl Directory<TestCrypto> {
     pub(super) async fn from_url(url: &str) -> Result<Self, DirectoryError<TestCrypto>> {
-        let client = Client::builder().build(HTTPSConnector::new());
+        let connector = HTTPSConnector::new()?;
+        let client = Client::builder().build(connector);
         let req = Request::get(url).body(Body::empty())?;
 
         let mut res = client.request(req).await?;
@@ -134,11 +138,13 @@ impl<C: Crypto> Directory<C> {
 struct Nonce(HeaderValue);
 
 impl Serialize for Nonce {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error> where
-        S: Serializer {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
         match self.0.to_str() {
             Ok(str) => serializer.serialize_str(str),
-            Err(e) => Err(SerError::custom(e))
+            Err(e) => Err(SerError::custom(e)),
         }
     }
 }
