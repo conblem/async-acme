@@ -11,22 +11,20 @@ use thiserror::Error;
 use super::Crypto;
 
 #[derive(Debug)]
-pub struct TestCrypto {
+pub struct RingCrypto {
     random: SystemRandom,
 }
 
-impl TestCrypto {
-    pub(crate) fn new() -> Self {
-        TestCrypto {
-            random: SystemRandom::new(),
-        }
-    }
-}
-
-impl Crypto for TestCrypto {
+impl Crypto for RingCrypto {
     type Signature = RingSignature;
     type KeyPair = RingKeyPair;
     type Error = KeyPairError;
+
+    fn new() -> Result<Self, Self::Error> {
+        Ok(Self {
+            random: SystemRandom::new(),
+        })
+    }
 
     fn generate_key(&self) -> Result<Self::KeyPair, Self::Error> {
         let document =

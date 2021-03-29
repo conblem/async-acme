@@ -8,9 +8,9 @@ use std::str;
 use thiserror::Error;
 
 use dto::{ApiAccount, ApiDirectory};
-use hyper::header::{HeaderName, HeaderValue};
+use hyper::header::{HeaderName, HeaderValue, CONTENT_TYPE};
 use hyper::http;
-use jws::{Crypto, TestCrypto};
+use jws::{Crypto, CryptoImpl};
 use tls::{HTTPSConnector, HTTPSError};
 
 mod dto;
@@ -55,8 +55,8 @@ pub(super) struct Directory<C> {
 const APPLICATION_JOSE_JSON: &str = "application/jose+json";
 const REPLAY_NONCE_HEADER: &str = "replay-nonce";
 
-impl Directory<TestCrypto> {
-    pub(super) async fn from_url(url: &str) -> Result<Self, DirectoryError<TestCrypto>> {
+impl Directory<CryptoImpl> {
+    pub(super) async fn from_url(url: &str) -> Result<Self, DirectoryError<CryptoImpl>> {
         let connector = HTTPSConnector::new()?;
         let client = Client::builder().build(connector);
         let req = Request::get(url).body(Body::empty())?;
@@ -66,10 +66,15 @@ impl Directory<TestCrypto> {
 
         let directory = serde_json::from_slice(body.as_ref())?;
 
+        let crypto = match CryptoImpl::new() {
+            Ok(crypto) => crypto,
+            Err(err) => Err(DirectoryError::Crypto(err))?
+        };
+
         Ok(Directory {
             directory,
             client,
-            crypto: TestCrypto::new(),
+            crypto,
             application_jose_json: HeaderValue::from_static(APPLICATION_JOSE_JSON),
             replay_nonce_header: HeaderName::from_static(REPLAY_NONCE_HEADER),
         })
@@ -127,9 +132,13 @@ impl<C: Crypto> Directory<C> {
         };
 
         let body = Body::from(serde_json::to_vec(&body)?);
-        let req = Request::post(&self.directory.new_account).body(body)?;
-        let res = self.client.request(req).await?;
-        println!("{:?}", res.body());
+        let mut req = Request::post(&self.directory.new_account).body(body)?;
+        req.headers_mut().insert(CONTENT_TYPE, self.application_jose_json.clone());
+
+        let mut res = self.client.request(req).await?;
+        let bytes = to_bytes(res.body_mut()).await.unwrap();
+        let body = str::from_utf8(&bytes).unwrap();
+        println!("{}", body);
 
         Ok(())
     }
