@@ -131,6 +131,7 @@ impl<C: Crypto> Directory<C> {
             signature,
         };
 
+        println!("{}", serde_json::to_string(&body)?);
         let body = Body::from(serde_json::to_vec(&body)?);
         let mut req = Request::post(&self.directory.new_account).body(body)?;
         req.headers_mut().insert(CONTENT_TYPE, self.application_jose_json.clone());
