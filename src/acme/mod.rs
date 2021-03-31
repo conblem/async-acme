@@ -68,7 +68,7 @@ impl Directory<CryptoImpl> {
 
         let crypto = match CryptoImpl::new() {
             Ok(crypto) => crypto,
-            Err(err) => Err(DirectoryError::Crypto(err))?
+            Err(err) => Err(DirectoryError::Crypto(err))?,
         };
 
         Ok(Directory {
@@ -134,7 +134,8 @@ impl<C: Crypto> Directory<C> {
         println!("{}", serde_json::to_string(&body)?);
         let body = Body::from(serde_json::to_vec(&body)?);
         let mut req = Request::post(&self.directory.new_account).body(body)?;
-        req.headers_mut().insert(CONTENT_TYPE, self.application_jose_json.clone());
+        req.headers_mut()
+            .insert(CONTENT_TYPE, self.application_jose_json.clone());
 
         let mut res = self.client.request(req).await?;
         let bytes = to_bytes(res.body_mut()).await.unwrap();

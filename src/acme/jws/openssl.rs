@@ -4,10 +4,11 @@ use openssl::ecdsa::EcdsaSig;
 use openssl::error::ErrorStack;
 use openssl::nid::Nid;
 use openssl::pkey::Private;
+use openssl::sha::sha384;
 use serde::ser::SerializeStruct;
 use serde::{Serialize, Serializer};
-use thiserror::Error;
 use std::fmt::{Debug, Formatter, Result as FmtResult};
+use thiserror::Error;
 
 use super::Crypto;
 
@@ -57,16 +58,21 @@ impl Crypto for OpenSSLCrypto {
         keypair: &Self::KeyPair,
         data: T,
     ) -> Result<Self::Signature, Self::Error> {
-        let signature = EcdsaSig::sign(data.as_ref(), &keypair.key)?;
-        let signature = signature.to_der()?;
-        Ok(OpenSSLSignature(signature))
+        let digest = sha384(data.as_ref());
+        let signature = EcdsaSig::sign(&digest, &keypair.key)?;
+
+        let mut r = signature.r().to_vec();
+        let s = signature.s().to_vec();
+        r.extend_from_slice(&s);
+
+        Ok(OpenSSLSignature(r))
     }
 
     fn set_kid(&self, keypair: &mut Self::KeyPair, kid: String) {
         keypair.kid = Some(kid);
     }
 
-    fn algorithm(&self, keypair: &Self::KeyPair) -> &'static str {
+    fn algorithm(&self, _keypair: &Self::KeyPair) -> &'static str {
         "ES384"
     }
 }
