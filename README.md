@@ -7,7 +7,7 @@ Currently Supported ACME Apis:
 
 Roadmap
 * Test ZeroSSL
-* Make reqwest depency optional and use hyper with a custom HTTPs connector
-* Add Ed25519 Signing
+* Add Ed25519 Signing (lets encrypt does not support this)
 * native-tls feature to remove the rustls dependency in cases where native-tls is used anyways
 * Automated CI and extensive testing
+* Multi Step singing to remove allocations
