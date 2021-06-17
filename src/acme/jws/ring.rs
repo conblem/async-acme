@@ -1,14 +1,20 @@
 use ring::error::{KeyRejected, Unspecified};
+use ring::pkcs8::Document;
 use ring::rand::SystemRandom;
 use ring::signature::{EcdsaKeyPair, KeyPair, Signature, ECDSA_P384_SHA384_FIXED_SIGNING};
-use serde::ser::SerializeStruct;
+use serde::ser::{Error as SerError, SerializeStruct};
 use serde::{Serialize, Serializer};
 use std::convert::TryFrom;
+use std::fmt;
+use std::fmt::{Display, Formatter};
 use std::str;
 use std::str::Utf8Error;
 use thiserror::Error;
 
 use super::Crypto;
+
+const X_LEN: usize = 64;
+const Y_LEN: usize = 64;
 
 #[derive(Debug)]
 pub struct RingCrypto {
@@ -29,13 +35,8 @@ impl Crypto for RingCrypto {
     fn generate_key(&self) -> Result<Self::KeyPair, Self::Error> {
         let document =
             EcdsaKeyPair::generate_pkcs8(&ECDSA_P384_SHA384_FIXED_SIGNING, &self.random)?;
-        let document = document.as_ref();
 
-        let mut data = Vec::with_capacity(1 + document.len());
-        data.insert(0, document.len() as u8);
-        data.extend_from_slice(document);
-
-        RingKeyPair::try_from(data)
+        RingKeyPair::try_from(document)
     }
 
     fn sign<T: AsRef<[u8]>>(
@@ -48,17 +49,7 @@ impl Crypto for RingCrypto {
     }
 
     fn set_kid(&self, keypair: &mut Self::KeyPair, kid: String) {
-        let data = &mut keypair.data;
-
-        // this includes the len octet at the begining
-        let pkcs_len = data[0] as usize + 1;
-
-        // if data is longer than len there is a kid at the end of data
-        if pkcs_len != data.len() {
-            // remove current kid
-            data.truncate(pkcs_len)
-        }
-        data.extend_from_slice(kid.as_bytes());
+        keypair.kid = Some(kid);
     }
 
     fn algorithm(&self, _keypair: &Self::KeyPair) -> &'static str {
@@ -70,35 +61,31 @@ pub struct RingKeyPair {
     //[pkcs len][pkcs][kid]
     // first octet is the pkcs len followed by the pkcs
     // the remaining bytes are the kid if any
-    data: Vec<u8>,
+    document: Document,
     pair: EcdsaKeyPair,
-    x: String,
-    y: String,
+    x: [u8; X_LEN],
+    y: [u8; Y_LEN],
+    kid: Option<String>,
 }
 
-fn pkcs_len_inclusive(data: &Vec<u8>) -> Result<usize, KeyPairError> {
-    let err = match data.iter().next() {
-        Some(0) => Some(0),
-        Some(len) => return Ok(*len as usize + 1),
-        None => None,
-    };
-
-    Err(KeyPairError::InvalidFirstOctetInPublic(err))
-}
-
-impl TryFrom<Vec<u8>> for RingKeyPair {
+impl TryFrom<Document> for RingKeyPair {
     type Error = KeyPairError;
 
-    fn try_from(data: Vec<u8>) -> Result<Self, Self::Error> {
-        let len = pkcs_len_inclusive(&data)?;
-        let pair = EcdsaKeyPair::from_pkcs8(&ECDSA_P384_SHA384_FIXED_SIGNING, &data[1..len])?;
+    fn try_from(document: Document) -> Result<Self, Self::Error> {
+        let pair = EcdsaKeyPair::from_pkcs8(&ECDSA_P384_SHA384_FIXED_SIGNING, document.as_ref())?;
         let (x, y) = export_x_y(&pair)?;
 
-        Ok(RingKeyPair { data, pair, x, y })
+        Ok(RingKeyPair {
+            document,
+            pair,
+            kid: None,
+            x,
+            y,
+        })
     }
 }
 
-fn export_x_y(pair: &EcdsaKeyPair) -> Result<(String, String), KeyPairError> {
+fn export_x_y(pair: &EcdsaKeyPair) -> Result<([u8; X_LEN], [u8; Y_LEN]), KeyPairError> {
     let public = pair.public_key().as_ref();
     match public.len() {
         97 => {}
@@ -112,25 +99,27 @@ fn export_x_y(pair: &EcdsaKeyPair) -> Result<(String, String), KeyPairError> {
 
     // we have to skip the first octet as this is the compression format
     // 4 means no compression, we only support this format
-    let x = base64::encode_config(&x[1..], base64::URL_SAFE_NO_PAD);
-    let y = base64::encode_config(y, base64::URL_SAFE_NO_PAD);
+    let mut x_base64 = [0; X_LEN];
+    let mut y_base64 = [0; Y_LEN];
+    // how can we make sure there is no panic
+    match base64::encode_config_slice(&x[1..], base64::URL_SAFE_NO_PAD, &mut x_base64) {
+        X_LEN => {}
+        len => return Err(KeyPairError::InvalidBase64Len(XY::X, len)),
+    };
+    match base64::encode_config_slice(y, base64::URL_SAFE_NO_PAD, &mut y_base64) {
+        Y_LEN => {}
+        len => return Err(KeyPairError::InvalidBase64Len(XY::X, len)),
+    };
 
-    Ok((x, y))
+    Ok((x_base64, y_base64))
 }
 
-// todo: this work only once
 impl Serialize for RingKeyPair {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
         S: Serializer,
     {
-        // this includes the len octet at the begining
-        let pkcs_len = self.data[0] as usize + 1;
-        // if data is longer than len there is a kid at the end of data
-        if pkcs_len != self.data.len() {
-            let kid = &self.data[pkcs_len..];
-            // is safe because this part of the array always gets set as string bytes
-            let kid = unsafe { str::from_utf8_unchecked(kid) };
+        if let Some(kid) = &self.kid {
             return serializer.serialize_str(kid);
         }
 
@@ -139,16 +128,16 @@ impl Serialize for RingKeyPair {
         serializer.serialize_field("kty", "EC")?;
         serializer.serialize_field("crv", "P-384")?;
 
-        serializer.serialize_field("x", &self.x)?;
-        serializer.serialize_field("y", &self.y)?;
+        match str::from_utf8(&self.x) {
+            Ok(x) => serializer.serialize_field("x", x)?,
+            Err(e) => return Err(SerError::custom(e)),
+        };
+        match str::from_utf8(&self.y) {
+            Ok(y) => serializer.serialize_field("y", y)?,
+            Err(e) => return Err(SerError::custom(e)),
+        };
 
         serializer.end()
-    }
-}
-
-impl AsRef<[u8]> for RingKeyPair {
-    fn as_ref(&self) -> &[u8] {
-        &self.data
     }
 }
 
@@ -168,6 +157,24 @@ pub enum KeyPairError {
 
     #[error("Public Key has invalid lenght of: {0}")]
     InvalidPublicLen(usize),
+
+    #[error("Base64 Conversion of Public Key Part {0} failed with lenght {1}")]
+    InvalidBase64Len(XY, usize),
+}
+
+#[derive(Debug)]
+pub enum XY {
+    X,
+    Y,
+}
+
+impl Display for XY {
+    fn fmt(&self, f: &mut Formatter) -> fmt::Result {
+        match self {
+            XY::X => write!(f, "X"),
+            XY::Y => write!(f, "X"),
+        }
+    }
 }
 
 pub struct RingSignature(Signature);

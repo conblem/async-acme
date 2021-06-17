@@ -106,7 +106,7 @@ impl<C: Crypto> Directory<C> {
         let protected = Protected {
             alg: self.crypto.algorithm(&keypair),
             nonce,
-            url: self.directory.new_account.clone(),
+            url: &*self.directory.new_account,
             jwk: &keypair,
         };
         let protected = serde_json::to_string(&protected)?;
@@ -161,10 +161,10 @@ impl Serialize for Nonce {
 }
 
 #[derive(Serialize)]
-struct Protected<K: Serialize> {
+struct Protected<'a, K: Serialize> {
     alg: &'static str,
     nonce: Nonce,
-    url: String,
+    url: &'a str,
     jwk: K,
 }
 

@@ -3,10 +3,10 @@ use std::error::Error as StdError;
 use std::fmt::Debug;
 use std::str;
 
-#[cfg(feature = "native-tls")]
+#[cfg(feature = "open-ssl")]
 mod openssl;
 
-#[cfg(feature = "native-tls")]
+#[cfg(feature = "open-ssl")]
 pub use self::openssl::OpenSSLCrypto as CryptoImpl;
 
 #[cfg(feature = "rustls")]
@@ -17,7 +17,8 @@ pub use self::ring::RingCrypto as CryptoImpl;
 
 pub trait Crypto: Debug + Sized {
     type Signature: Serialize;
-    type KeyPair: Serialize + AsRef<[u8]>;
+    type KeyPair: Serialize;
+    type Signer: Sign<Signature = Self::Signature, Error = Self::Error>;
 
     type Error: StdError;
 
@@ -27,8 +28,16 @@ pub trait Crypto: Debug + Sized {
     fn sign<T: AsRef<[u8]>>(
         &self,
         keypair: &Self::KeyPair,
-        data: T,
     ) -> Result<Self::Signature, Self::Error>;
     fn set_kid(&self, keypair: &mut Self::KeyPair, kid: String);
     fn algorithm(&self, keypair: &Self::KeyPair) -> &'static str;
+}
+
+pub trait Sign {
+    type Signature: Serialize;
+
+    type Error: StdError;
+
+    fn update(&mut self, buf: &[u8]) -> Result<(), Self::Error>;
+    fn finish(self) -> Result<Self::Signature, Self::Error>;
 }

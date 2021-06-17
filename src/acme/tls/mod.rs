@@ -16,12 +16,14 @@ mod rustls;
 #[cfg(feature = "rustls")]
 use rustls::{HTTPSConnectorInner, TlsStream};
 
-#[cfg(feature = "native-tls")]
-use tokio_native_tls::native_tls;
-#[cfg(feature = "native-tls")]
-mod nativetls;
-#[cfg(feature = "native-tls")]
-use nativetls::{HTTPSConnectorInner, TlsStream};
+#[cfg(feature = "open-ssl")]
+mod openssl;
+#[cfg(feature = "open-ssl")]
+use self::openssl::{HTTPSConnectorInner, TlsStream};
+#[cfg(feature = "open-ssl")]
+use ::openssl::error::ErrorStack;
+#[cfg(feature = "open-ssl")]
+use ::openssl::ssl::Error as SSLError;
 
 #[derive(Error, Debug)]
 pub(crate) enum HTTPSError {
@@ -38,9 +40,13 @@ pub(crate) enum HTTPSError {
     #[error("Invalid DNS Name")]
     InvalidDNSName(#[from] InvalidDNSNameError),
 
-    #[cfg(feature = "native-tls")]
-    #[error("Native TLS Error")]
-    NativeTLS(#[from] native_tls::Error),
+    #[cfg(feature = "open-ssl")]
+    #[error("OpenSSL Error Stack")]
+    OpenSSLErrorStack(#[from] ErrorStack),
+
+    #[cfg(feature = "open-ssl")]
+    #[error("OpenSSL SSL Error")]
+    OpenSSLErrorSSL(#[from] SSLError),
 }
 
 #[derive(Clone)]

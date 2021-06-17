@@ -4,13 +4,13 @@ use openssl::ecdsa::EcdsaSig;
 use openssl::error::ErrorStack;
 use openssl::nid::Nid;
 use openssl::pkey::Private;
-use openssl::sha::sha384;
+use openssl::sha::{sha384, Sha384};
 use serde::ser::SerializeStruct;
 use serde::{Serialize, Serializer};
 use std::fmt::{Debug, Formatter, Result as FmtResult};
 use thiserror::Error;
 
-use super::Crypto;
+use super::{Crypto, Sign};
 
 pub struct OpenSSLCrypto {
     group: EcGroup,
@@ -33,6 +33,8 @@ pub enum OpenSSLError {
 impl Crypto for OpenSSLCrypto {
     type Signature = OpenSSLSignature;
     type KeyPair = OpenSSLKeyPair;
+    type Signer = OpenSSLSigner<'_>;
+
     type Error = OpenSSLError;
 
     fn new() -> Result<Self, Self::Error> {
@@ -56,16 +58,9 @@ impl Crypto for OpenSSLCrypto {
     fn sign<T: AsRef<[u8]>>(
         &self,
         keypair: &Self::KeyPair,
-        data: T,
-    ) -> Result<Self::Signature, Self::Error> {
-        let digest = sha384(data.as_ref());
-        let signature = EcdsaSig::sign(&digest, &keypair.key)?;
+    ) -> Result<Self::Signer, Self::Error> {
+        OpenSSLSigner()
 
-        let mut r = signature.r().to_vec();
-        let s = signature.s().to_vec();
-        r.extend_from_slice(&s);
-
-        Ok(OpenSSLSignature(r))
     }
 
     fn set_kid(&self, keypair: &mut Self::KeyPair, kid: String) {
@@ -100,6 +95,7 @@ fn export_x_and_y(key: &EcPointRef, group: &EcGroupRef) -> Result<(String, Strin
 pub struct OpenSSLKeyPair {
     key: EcKey<Private>,
     kid: Option<String>,
+    // use constant width
     x: String,
     y: String,
 }
@@ -140,5 +136,30 @@ impl Serialize for OpenSSLSignature {
     {
         let data = base64::encode_config(&self.0, base64::URL_SAFE_NO_PAD);
         serializer.serialize_str(&data)
+    }
+}
+
+pub struct OpenSSLSigner<'a>(&'a OpenSSLCrypto::KeyPair, Sha384);
+
+impl Sign for OpenSSLSigner<'_> {
+    type Signature = OpenSSLCrypto::Signature;
+
+    type Error = OpenSSLCrypto::Error;
+
+    fn update(&mut self, buf: &[u8]) -> Result<(), Self::Error> {
+        self.0.update(buf);
+
+        Ok(())
+    }
+
+    fn finish(self) -> Result<Self::Signature, Self::Error> {
+        let digest = self.1.finish();
+        let signature = EcdsaSig::sign(&digest, &self.0)?;
+
+        let mut r = signature.r().to_vec();
+        let s = signature.s().to_vec();
+        r.extend_from_slice(&s);
+
+        Ok(OpenSSLSignature(r))
     }
 }
