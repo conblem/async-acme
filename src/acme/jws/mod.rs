@@ -15,29 +15,35 @@ mod ring;
 #[cfg(feature = "rustls")]
 pub use self::ring::RingCrypto as CryptoImpl;
 
-pub trait Crypto: Debug + Sized {
-    type Signature: Serialize;
-    type KeyPair: Serialize;
-    type Signer: Sign<Signature = Self::Signature, Error = Self::Error>;
+pub trait Crypto: Debug + Sized
+{
+    type Signer: Sign<Crypto = Self>;
+    type Signature: Serialize + 'static;
+    type KeyPair: Serialize + 'static;
 
-    type Error: StdError;
+    type Error: StdError + 'static;
 
     fn new() -> Result<Self, Self::Error>;
 
     fn generate_key(&self) -> Result<Self::KeyPair, Self::Error>;
-    fn sign<T: AsRef<[u8]>>(
+    fn sign<'a, H: Into<Option<usize>>>(
         &self,
-        keypair: &Self::KeyPair,
-    ) -> Result<Self::Signature, Self::Error>;
+        size_hint: H,
+    ) -> Self::Signer;
+
     fn set_kid(&self, keypair: &mut Self::KeyPair, kid: String);
     fn algorithm(&self, keypair: &Self::KeyPair) -> &'static str;
 }
 
 pub trait Sign {
-    type Signature: Serialize;
+    type Crypto: Crypto;
 
-    type Error: StdError;
-
-    fn update(&mut self, buf: &[u8]) -> Result<(), Self::Error>;
-    fn finish(self) -> Result<Self::Signature, Self::Error>;
+    fn update<T: AsRef<[u8]>>(&mut self, buf: T);
+    fn finish(
+        self,
+        keypair: &<<Self as Sign>::Crypto as Crypto>::KeyPair,
+    ) -> Result<
+        <<Self as Sign>::Crypto as Crypto>::Signature,
+        <<Self as Sign>::Crypto as Crypto>::Error,
+    >;
 }

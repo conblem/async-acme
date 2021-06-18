@@ -11,7 +11,7 @@ use std::str;
 use std::str::Utf8Error;
 use thiserror::Error;
 
-use super::Crypto;
+use super::{Crypto, Sign};
 
 const X_LEN: usize = 64;
 const Y_LEN: usize = 64;
@@ -22,6 +22,7 @@ pub struct RingCrypto {
 }
 
 impl Crypto for RingCrypto {
+    type Signer = RingSigner;
     type Signature = RingSignature;
     type KeyPair = RingKeyPair;
     type Error = KeyPairError;
@@ -39,13 +40,12 @@ impl Crypto for RingCrypto {
         RingKeyPair::try_from(document)
     }
 
-    fn sign<T: AsRef<[u8]>>(
+    fn sign<'a, H: Into<Option<usize>>>(
         &self,
-        keypair: &Self::KeyPair,
-        data: T,
-    ) -> Result<Self::Signature, Self::Error> {
-        let signature = keypair.pair.sign(&self.random, data.as_ref())?;
-        Ok(RingSignature(signature))
+        size_hint: H,
+    ) -> Self::Signer {
+        let size_hint = size_hint.into().unwrap_or(0);
+        RingSigner(Vec::with_capacity(size_hint))
     }
 
     fn set_kid(&self, keypair: &mut Self::KeyPair, kid: String) {
@@ -174,6 +174,29 @@ impl Display for XY {
             XY::X => write!(f, "X"),
             XY::Y => write!(f, "X"),
         }
+    }
+}
+
+pub struct RingSigner(Vec<u8>);
+
+impl Sign for RingSigner {
+    type Crypto = RingCrypto;
+
+    fn update<T: AsRef<[u8]>>(&mut self, buf: T) {
+        self.0.extend_from_slice(buf.as_ref());
+    }
+
+    fn finish(
+        self,
+        keypair: &<<Self as Sign>::Crypto as Crypto>::KeyPair,
+    ) -> Result<
+        <<Self as Sign>::Crypto as Crypto>::Signature,
+        <<Self as Sign>::Crypto as Crypto>::Error,
+    > {
+        // todo: fix this
+        let random = SystemRandom::new();
+        let signature = keypair.pair.sign(&random, self.0.as_ref())?;
+        Ok(RingSignature(signature))
     }
 }
 

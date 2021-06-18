@@ -7,6 +7,7 @@ use std::io;
 use std::str;
 use thiserror::Error;
 
+use crate::acme::jws::Sign;
 use dto::{ApiAccount, ApiDirectory};
 use hyper::header::{HeaderName, HeaderValue, CONTENT_TYPE};
 use hyper::http;
@@ -19,7 +20,8 @@ mod persist;
 mod tls;
 
 #[derive(Error, Debug)]
-pub(super) enum DirectoryError<C: Crypto> {
+pub(super) enum DirectoryError<C: Crypto>
+{
     #[error("IO Error")]
     IO(#[from] io::Error),
 
@@ -56,7 +58,9 @@ const APPLICATION_JOSE_JSON: &str = "application/jose+json";
 const REPLAY_NONCE_HEADER: &str = "replay-nonce";
 
 impl Directory<CryptoImpl> {
-    pub(super) async fn from_url(url: &str) -> Result<Self, DirectoryError<CryptoImpl>> {
+    pub(super) async fn from_url(
+        url: &str,
+    ) -> Result<Self, DirectoryError<CryptoImpl>> {
         let connector = HTTPSConnector::new()?;
         let client = Client::builder().build(connector);
         let req = Request::get(url).body(Body::empty())?;
@@ -84,7 +88,8 @@ impl Directory<CryptoImpl> {
         "https://acme-staging-v02.api.letsencrypt.org/directory";
 }
 
-impl<C: Crypto> Directory<C> {
+impl<C: Crypto> Directory<C>
+{
     async fn get_nonce(&self) -> Result<Nonce, DirectoryError<C>> {
         let req = Request::head(&self.directory.new_nonce).body(Body::empty())?;
         let mut res = self.client.request(req).await?;
@@ -95,11 +100,14 @@ impl<C: Crypto> Directory<C> {
             .ok_or_else(|| DirectoryError::NoNonce)
     }
 
-    pub(super) async fn new_account(&self, tos: bool) -> Result<(), DirectoryError<C>> {
+    pub(super) async fn new_account(
+        &self,
+        tos: bool,
+    ) -> Result<(), DirectoryError<C>> {
         let nonce = self.get_nonce().await?;
 
         let keypair = match self.crypto.generate_key() {
-            Err(err) => Err(DirectoryError::Crypto(err))?,
+            Err(err) => return Err(DirectoryError::Crypto(err)),
             Ok(keypair) => keypair,
         };
 
@@ -116,13 +124,16 @@ impl<C: Crypto> Directory<C> {
         let account = serde_json::to_string(&account)?;
         let account = base64::encode_config(account, base64::URL_SAFE_NO_PAD);
 
-        let mut signature_input = String::with_capacity(protected.len() + account.len() + 1);
-        signature_input += &protected;
-        signature_input += ".";
-        signature_input += &account;
-        let signature = match self.crypto.sign(&keypair, signature_input) {
-            Err(err) => Err(DirectoryError::Crypto(err))?,
-            Ok(signature) => signature,
+        let mut signer = self
+            .crypto
+            .sign(protected.len() + account.len() + 1);
+
+        signer.update(&protected);
+        signer.update(b".");
+        signer.update(&account);
+        let signature = match signer.finish(&keypair) {
+            Err(err) => return Err(DirectoryError::Crypto(err)),
+            Ok(signature)  => signature,
         };
 
         let body = SignedRequest {

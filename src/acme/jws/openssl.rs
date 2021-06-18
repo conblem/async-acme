@@ -4,7 +4,7 @@ use openssl::ecdsa::EcdsaSig;
 use openssl::error::ErrorStack;
 use openssl::nid::Nid;
 use openssl::pkey::Private;
-use openssl::sha::{sha384, Sha384};
+use openssl::sha::Sha384;
 use serde::ser::SerializeStruct;
 use serde::{Serialize, Serializer};
 use std::fmt::{Debug, Formatter, Result as FmtResult};
@@ -31,9 +31,9 @@ pub enum OpenSSLError {
 }
 
 impl Crypto for OpenSSLCrypto {
+    type Signer = OpenSSLSigner;
     type Signature = OpenSSLSignature;
     type KeyPair = OpenSSLKeyPair;
-    type Signer = OpenSSLSigner<'_>;
 
     type Error = OpenSSLError;
 
@@ -55,12 +55,11 @@ impl Crypto for OpenSSLCrypto {
         })
     }
 
-    fn sign<T: AsRef<[u8]>>(
+    fn sign<'a, H: Into<Option<usize>>>(
         &self,
-        keypair: &Self::KeyPair,
-    ) -> Result<Self::Signer, Self::Error> {
-        OpenSSLSigner()
-
+        _size_hint: H,
+    ) -> OpenSSLSigner {
+        OpenSSLSigner(Sha384::new())
     }
 
     fn set_kid(&self, keypair: &mut Self::KeyPair, kid: String) {
@@ -139,22 +138,27 @@ impl Serialize for OpenSSLSignature {
     }
 }
 
-pub struct OpenSSLSigner<'a>(&'a OpenSSLCrypto::KeyPair, Sha384);
+pub struct OpenSSLSigner(
+    Sha384,
+);
 
-impl Sign for OpenSSLSigner<'_> {
-    type Signature = OpenSSLCrypto::Signature;
+impl Sign for OpenSSLSigner {
+    type Crypto = OpenSSLCrypto;
 
-    type Error = OpenSSLCrypto::Error;
-
-    fn update(&mut self, buf: &[u8]) -> Result<(), Self::Error> {
-        self.0.update(buf);
-
-        Ok(())
+    fn update<T: AsRef<[u8]>>(&mut self, buf: T) {
+        self.0.update(buf.as_ref());
     }
 
-    fn finish(self) -> Result<Self::Signature, Self::Error> {
-        let digest = self.1.finish();
-        let signature = EcdsaSig::sign(&digest, &self.0)?;
+    fn finish(
+        self,
+        keypair: &<<Self as Sign>::Crypto as Crypto>::KeyPair,
+    ) -> Result<
+        <<Self as Sign>::Crypto as Crypto>::Signature,
+        <<Self as Sign>::Crypto as Crypto>::Error,
+    > {
+        let digest = self.0.finish();
+
+        let signature = EcdsaSig::sign(&digest, &keypair.key)?;
 
         let mut r = signature.r().to_vec();
         let s = signature.s().to_vec();
