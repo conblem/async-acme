@@ -15,8 +15,7 @@ mod ring;
 #[cfg(feature = "rustls")]
 pub use self::ring::RingCrypto as CryptoImpl;
 
-pub trait Crypto: Debug + Sized
-{
+pub trait Crypto: Debug + Sized {
     type Signer: Sign<Crypto = Self>;
     type Signature: Serialize + 'static;
     type KeyPair: Serialize + 'static;
@@ -26,10 +25,7 @@ pub trait Crypto: Debug + Sized
     fn new() -> Result<Self, Self::Error>;
 
     fn generate_key(&self) -> Result<Self::KeyPair, Self::Error>;
-    fn sign<'a, H: Into<Option<usize>>>(
-        &self,
-        size_hint: H,
-    ) -> Self::Signer;
+    fn sign<'a, 'b>(&'a self, key_pair: &'b Self::KeyPair, size_hint: usize) -> Signer<'a, 'b, Self>;
 
     fn set_kid(&self, keypair: &mut Self::KeyPair, kid: String);
     fn algorithm(&self, keypair: &Self::KeyPair) -> &'static str;
@@ -38,12 +34,45 @@ pub trait Crypto: Debug + Sized
 pub trait Sign {
     type Crypto: Crypto;
 
-    fn update<T: AsRef<[u8]>>(&mut self, buf: T);
+    fn new(size_hint: usize) -> Self;
+    fn update(&mut self, buf: &[u8]);
     fn finish(
         self,
+        crypto: &Self::Crypto,
         keypair: &<<Self as Sign>::Crypto as Crypto>::KeyPair,
     ) -> Result<
         <<Self as Sign>::Crypto as Crypto>::Signature,
         <<Self as Sign>::Crypto as Crypto>::Error,
     >;
+}
+
+pub struct Signer<'a, 'b, C: Crypto> {
+    inner: <C as Crypto>::Signer,
+    crypto: &'a C,
+    keypair: &'b <C as Crypto>::KeyPair,
+}
+
+impl<'a, 'b, C: Crypto> Signer<'a, 'b, C> {
+    fn new(crypto: &'a C, keypair: &'b <C as Crypto>::KeyPair, size_hint: usize) -> Self {
+        let inner = <C as Crypto>::Signer::new(size_hint);
+        Self {
+            inner,
+            crypto,
+            keypair
+        }
+    }
+
+    pub fn update<T: AsRef<[u8]>>(&mut self, buf: T) {
+        self.inner.update(buf.as_ref())
+    }
+
+    pub fn finish(self) -> Result<<C as Crypto>::Signature, <C as Crypto>::Error> {
+        let Signer {
+            inner,
+            keypair,
+            crypto,
+        } = self;
+
+        inner.finish(crypto, keypair)
+    }
 }

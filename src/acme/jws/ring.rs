@@ -11,7 +11,7 @@ use std::str;
 use std::str::Utf8Error;
 use thiserror::Error;
 
-use super::{Crypto, Sign};
+use super::{Crypto, Sign, Signer};
 
 const X_LEN: usize = 64;
 const Y_LEN: usize = 64;
@@ -40,12 +40,8 @@ impl Crypto for RingCrypto {
         RingKeyPair::try_from(document)
     }
 
-    fn sign<'a, H: Into<Option<usize>>>(
-        &self,
-        size_hint: H,
-    ) -> Self::Signer {
-        let size_hint = size_hint.into().unwrap_or(0);
-        RingSigner(Vec::with_capacity(size_hint))
+    fn sign<'a, 'b>(&'a self, keypair: &'b Self::KeyPair, size_hint: usize) -> Signer<'a, 'b, Self> {
+        Signer::new(self, keypair, size_hint)
     }
 
     fn set_kid(&self, keypair: &mut Self::KeyPair, kid: String) {
@@ -108,7 +104,7 @@ fn export_x_y(pair: &EcdsaKeyPair) -> Result<([u8; X_LEN], [u8; Y_LEN]), KeyPair
     };
     match base64::encode_config_slice(y, base64::URL_SAFE_NO_PAD, &mut y_base64) {
         Y_LEN => {}
-        len => return Err(KeyPairError::InvalidBase64Len(XY::X, len)),
+        len => return Err(KeyPairError::InvalidBase64Len(XY::Y, len)),
     };
 
     Ok((x_base64, y_base64))
@@ -181,21 +177,23 @@ pub struct RingSigner(Vec<u8>);
 
 impl Sign for RingSigner {
     type Crypto = RingCrypto;
+    fn new(size_hint: usize) -> Self {
+        RingSigner(Vec::with_capacity(size_hint))
+    }
 
-    fn update<T: AsRef<[u8]>>(&mut self, buf: T) {
-        self.0.extend_from_slice(buf.as_ref());
+    fn update(&mut self, buf: &[u8]) {
+        self.0.extend_from_slice(buf);
     }
 
     fn finish(
         self,
+        crypto: &Self::Crypto,
         keypair: &<<Self as Sign>::Crypto as Crypto>::KeyPair,
     ) -> Result<
         <<Self as Sign>::Crypto as Crypto>::Signature,
         <<Self as Sign>::Crypto as Crypto>::Error,
     > {
-        // todo: fix this
-        let random = SystemRandom::new();
-        let signature = keypair.pair.sign(&random, self.0.as_ref())?;
+        let signature = keypair.pair.sign(&crypto.random, self.0.as_ref())?;
         Ok(RingSignature(signature))
     }
 }

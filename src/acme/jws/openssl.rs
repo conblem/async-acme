@@ -10,7 +10,7 @@ use serde::{Serialize, Serializer};
 use std::fmt::{Debug, Formatter, Result as FmtResult};
 use thiserror::Error;
 
-use super::{Crypto, Sign};
+use super::{Crypto, Sign, Signer};
 
 pub struct OpenSSLCrypto {
     group: EcGroup,
@@ -55,11 +55,8 @@ impl Crypto for OpenSSLCrypto {
         })
     }
 
-    fn sign<'a, H: Into<Option<usize>>>(
-        &self,
-        _size_hint: H,
-    ) -> OpenSSLSigner {
-        OpenSSLSigner(Sha384::new())
+    fn sign<'a, 'b>(&'a self, keypair: &'b Self::KeyPair, size_hint: usize) -> Signer<'a, 'b, Self> {
+        Signer::new(self, keypair, size_hint)
     }
 
     fn set_kid(&self, keypair: &mut Self::KeyPair, kid: String) {
@@ -138,19 +135,22 @@ impl Serialize for OpenSSLSignature {
     }
 }
 
-pub struct OpenSSLSigner(
-    Sha384,
-);
+pub struct OpenSSLSigner(Sha384);
 
 impl Sign for OpenSSLSigner {
     type Crypto = OpenSSLCrypto;
 
-    fn update<T: AsRef<[u8]>>(&mut self, buf: T) {
-        self.0.update(buf.as_ref());
+    fn new(_size_hint: usize) -> Self {
+        OpenSSLSigner(Sha384::new())
+    }
+
+    fn update(&mut self, buf: &[u8]) {
+        self.0.update(buf);
     }
 
     fn finish(
         self,
+        _crypto: &Self::Crypto,
         keypair: &<<Self as Sign>::Crypto as Crypto>::KeyPair,
     ) -> Result<
         <<Self as Sign>::Crypto as Crypto>::Signature,
