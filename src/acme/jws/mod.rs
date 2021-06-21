@@ -3,6 +3,8 @@ use std::error::Error as StdError;
 use std::fmt::Debug;
 use std::str;
 
+use super::Header;
+
 #[cfg(feature = "open-ssl")]
 mod openssl;
 
@@ -31,7 +33,7 @@ pub trait Crypto: Debug + Sized {
         size_hint: usize,
     ) -> Signer<'a, 'b, Self>;
 
-    fn set_kid(&self, keypair: &mut Self::KeyPair, kid: String);
+    fn set_kid(&self, keypair: &mut Self::KeyPair, kid: Header);
     fn algorithm(&self, keypair: &Self::KeyPair) -> &'static str;
 }
 

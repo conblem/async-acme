@@ -11,7 +11,7 @@ use std::str;
 use std::str::Utf8Error;
 use thiserror::Error;
 
-use super::{Crypto, Sign, Signer};
+use super::{Crypto, Header, Sign, Signer};
 
 const X_LEN: usize = 64;
 const Y_LEN: usize = 64;
@@ -48,7 +48,7 @@ impl Crypto for RingCrypto {
         Signer::new(self, keypair, size_hint)
     }
 
-    fn set_kid(&self, keypair: &mut Self::KeyPair, kid: String) {
+    fn set_kid(&self, keypair: &mut Self::KeyPair, kid: Header) {
         keypair.kid = Some(kid);
     }
 
@@ -65,7 +65,7 @@ pub struct RingKeyPair {
     pair: EcdsaKeyPair,
     x: [u8; X_LEN],
     y: [u8; Y_LEN],
-    kid: Option<String>,
+    kid: Option<Header>,
 }
 
 impl TryFrom<Document> for RingKeyPair {
@@ -120,7 +120,7 @@ impl Serialize for RingKeyPair {
         S: Serializer,
     {
         if let Some(kid) = &self.kid {
-            return serializer.serialize_str(kid);
+            return kid.serialize(serializer);
         }
 
         let mut serializer = serializer.serialize_struct("RingKeyPair", 4)?;

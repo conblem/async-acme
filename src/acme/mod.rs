@@ -1,5 +1,5 @@
 use hyper::body::to_bytes;
-use hyper::header::{HeaderName, HeaderValue, CONTENT_TYPE};
+use hyper::header::{HeaderName, HeaderValue, CONTENT_TYPE, LOCATION};
 use hyper::http;
 use hyper::{Body, Client, Request};
 use serde::ser::Error as SerError;
@@ -40,6 +40,9 @@ pub(super) enum DirectoryError<C: Crypto> {
 
     #[error("API returned no noce")]
     NoNonce,
+
+    #[error("API returned no kid")]
+    NoKid,
 
     #[error("HTTPS Connector Error")]
     HTTPSConnector(#[from] HTTPSError),
@@ -92,20 +95,20 @@ impl Directory<(), ()> {
 }
 
 impl<C: Crypto, P: Persist> Directory<C, P> {
-    async fn get_nonce(&self) -> Result<Nonce, DirectoryError<C>> {
+    async fn get_nonce(&self) -> Result<Header, DirectoryError<C>> {
         let req = Request::head(&self.directory.new_nonce).body(Body::empty())?;
         let mut res = self.client.request(req).await?;
 
         res.headers_mut()
             .remove(&self.replay_nonce_header)
-            .map(Nonce)
+            .map(Header)
             .ok_or_else(|| DirectoryError::NoNonce)
     }
 
-    pub(super) async fn new_account(&self, tos: bool) -> Result<(), DirectoryError<C>> {
+    pub(super) async fn new_account(&self, tos: bool) -> Result<ApiAccount, DirectoryError<C>> {
         let nonce = self.get_nonce().await?;
 
-        let keypair = match self.crypto.generate_key() {
+        let mut keypair = match self.crypto.generate_key() {
             Err(err) => return Err(DirectoryError::Crypto(err)),
             Ok(keypair) => keypair,
         };
@@ -119,17 +122,17 @@ impl<C: Crypto, P: Persist> Directory<C, P> {
         let protected = serde_json::to_string(&protected)?;
         let protected = base64::encode_config(protected, base64::URL_SAFE_NO_PAD);
 
-        let account = ApiAccount::new(vec![], tos);
-        let account = serde_json::to_string(&account)?;
-        let account = base64::encode_config(account, base64::URL_SAFE_NO_PAD);
+        let mut account = ApiAccount::new(vec![], tos);
+        let account_str = serde_json::to_string(&account)?;
+        let account_str = base64::encode_config(account_str, base64::URL_SAFE_NO_PAD);
 
         let mut signer = self
             .crypto
-            .sign(&keypair, protected.len() + account.len() + 1);
+            .sign(&keypair, protected.len() + account_str.len() + 1);
 
         signer.update(&protected);
         signer.update(b".");
-        signer.update(&account);
+        signer.update(&account_str);
         let signature = match signer.finish() {
             Err(err) => return Err(DirectoryError::Crypto(err)),
             Ok(signature) => signature,
@@ -137,7 +140,7 @@ impl<C: Crypto, P: Persist> Directory<C, P> {
 
         let body = SignedRequest {
             protected,
-            payload: account,
+            payload: account_str,
             signature,
         };
 
@@ -148,21 +151,26 @@ impl<C: Crypto, P: Persist> Directory<C, P> {
             .insert(CONTENT_TYPE, self.application_jose_json.clone());
 
         let mut res = self.client.request(req).await?;
+
+        let kid = res
+            .headers_mut()
+            .remove(LOCATION)
+            .map(Header)
+            .ok_or_else(|| DirectoryError::NoKid)?;
+
+        self.crypto.set_kid(&mut keypair, kid);
+
         let bytes = to_bytes(res.body_mut()).await.unwrap();
-        let body = str::from_utf8(&bytes).unwrap();
-        println!("{}", body);
+        let new_account: ApiAccount = serde_json::from_slice(bytes.as_ref())?;
 
-        self.persist.put("test", &b"hallo"[..]).await.unwrap();
-        let res = self.persist.get("test").await.unwrap();
-        println!("{:?} {:?}", b"hallo", res.as_slice());
-
-        Ok(())
+        account.status = new_account.status;
+        Ok(account)
     }
 }
 
-struct Nonce(HeaderValue);
+pub struct Header(HeaderValue);
 
-impl Serialize for Nonce {
+impl Serialize for Header {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
         S: Serializer,
@@ -177,7 +185,7 @@ impl Serialize for Nonce {
 #[derive(Serialize)]
 struct Protected<'a, K: Serialize> {
     alg: &'static str,
-    nonce: Nonce,
+    nonce: Header,
     url: &'a str,
     jwk: K,
 }

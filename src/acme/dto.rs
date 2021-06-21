@@ -31,7 +31,7 @@ pub(crate) struct ApiMeta {
 #[serde(rename_all = "camelCase")]
 pub(crate) struct ApiAccount {
     #[serde(skip_serializing_if = "Option::is_none")]
-    status: Option<ApiAccountStatus>,
+    pub status: Option<ApiAccountStatus>,
     #[serde(default)]
     contact: Vec<String>,
     #[serde(default = "default_false")]

@@ -10,7 +10,7 @@ use serde::{Serialize, Serializer};
 use std::fmt::{Debug, Formatter, Result as FmtResult};
 use thiserror::Error;
 
-use super::{Crypto, Sign, Signer};
+use super::{Crypto, Header, Sign, Signer};
 
 pub struct OpenSSLCrypto {
     group: EcGroup,
@@ -63,7 +63,7 @@ impl Crypto for OpenSSLCrypto {
         Signer::new(self, keypair, size_hint)
     }
 
-    fn set_kid(&self, keypair: &mut Self::KeyPair, kid: String) {
+    fn set_kid(&self, keypair: &mut Self::KeyPair, kid: Header) {
         keypair.kid = Some(kid);
     }
 
@@ -94,7 +94,7 @@ fn export_x_and_y(key: &EcPointRef, group: &EcGroupRef) -> Result<(String, Strin
 
 pub struct OpenSSLKeyPair {
     key: EcKey<Private>,
-    kid: Option<String>,
+    kid: Option<Header>,
     // use constant width
     x: String,
     y: String,
@@ -112,7 +112,7 @@ impl Serialize for OpenSSLKeyPair {
         S: Serializer,
     {
         if let Some(kid) = &self.kid {
-            return serializer.serialize_str(kid);
+            return kid.serialize(serializer);
         }
 
         let mut serializer = serializer.serialize_struct("OpenSSLKeyPair", 4)?;
