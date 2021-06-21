@@ -40,7 +40,11 @@ impl Crypto for RingCrypto {
         RingKeyPair::try_from(document)
     }
 
-    fn sign<'a, 'b>(&'a self, keypair: &'b Self::KeyPair, size_hint: usize) -> Signer<'a, 'b, Self> {
+    fn sign<'a, 'b>(
+        &'a self,
+        keypair: &'b Self::KeyPair,
+        size_hint: usize,
+    ) -> Signer<'a, 'b, Self> {
         Signer::new(self, keypair, size_hint)
     }
 

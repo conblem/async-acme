@@ -25,7 +25,11 @@ pub trait Crypto: Debug + Sized {
     fn new() -> Result<Self, Self::Error>;
 
     fn generate_key(&self) -> Result<Self::KeyPair, Self::Error>;
-    fn sign<'a, 'b>(&'a self, key_pair: &'b Self::KeyPair, size_hint: usize) -> Signer<'a, 'b, Self>;
+    fn sign<'a, 'b>(
+        &'a self,
+        key_pair: &'b Self::KeyPair,
+        size_hint: usize,
+    ) -> Signer<'a, 'b, Self>;
 
     fn set_kid(&self, keypair: &mut Self::KeyPair, kid: String);
     fn algorithm(&self, keypair: &Self::KeyPair) -> &'static str;
@@ -58,7 +62,7 @@ impl<'a, 'b, C: Crypto> Signer<'a, 'b, C> {
         Self {
             inner,
             crypto,
-            keypair
+            keypair,
         }
     }
 

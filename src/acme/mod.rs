@@ -1,4 +1,6 @@
 use hyper::body::to_bytes;
+use hyper::header::{HeaderName, HeaderValue, CONTENT_TYPE};
+use hyper::http;
 use hyper::{Body, Client, Request};
 use serde::ser::Error as SerError;
 use serde::{Serialize, Serializer};
@@ -8,9 +10,9 @@ use std::str;
 use thiserror::Error;
 
 use dto::{ApiAccount, ApiDirectory};
-use hyper::header::{HeaderName, HeaderValue, CONTENT_TYPE};
-use hyper::http;
 use jws::{Crypto, CryptoImpl};
+pub(super) use persist::MemoryPersist;
+use persist::Persist;
 use tls::{HTTPSConnector, HTTPSError};
 
 mod dto;
@@ -44,19 +46,23 @@ pub(super) enum DirectoryError<C: Crypto> {
 }
 
 #[derive(Debug)]
-pub(super) struct Directory<C> {
+pub(super) struct Directory<C, P> {
     directory: ApiDirectory,
     client: Client<HTTPSConnector>,
     crypto: C,
     application_jose_json: HeaderValue,
     replay_nonce_header: HeaderName,
+    persist: P,
 }
 
 const APPLICATION_JOSE_JSON: &str = "application/jose+json";
 const REPLAY_NONCE_HEADER: &str = "replay-nonce";
 
-impl Directory<CryptoImpl> {
-    pub(super) async fn from_url(url: &str) -> Result<Self, DirectoryError<CryptoImpl>> {
+impl Directory<(), ()> {
+    pub(super) async fn from_url<P: Persist>(
+        url: &str,
+        persist: P,
+    ) -> Result<Directory<CryptoImpl, P>, DirectoryError<CryptoImpl>> {
         let connector = HTTPSConnector::new()?;
         let client = Client::builder().build(connector);
         let req = Request::get(url).body(Body::empty())?;
@@ -77,6 +83,7 @@ impl Directory<CryptoImpl> {
             crypto,
             application_jose_json: HeaderValue::from_static(APPLICATION_JOSE_JSON),
             replay_nonce_header: HeaderName::from_static(REPLAY_NONCE_HEADER),
+            persist,
         })
     }
 
@@ -84,7 +91,7 @@ impl Directory<CryptoImpl> {
         "https://acme-staging-v02.api.letsencrypt.org/directory";
 }
 
-impl<C: Crypto> Directory<C> {
+impl<C: Crypto, P: Persist> Directory<C, P> {
     async fn get_nonce(&self) -> Result<Nonce, DirectoryError<C>> {
         let req = Request::head(&self.directory.new_nonce).body(Body::empty())?;
         let mut res = self.client.request(req).await?;
@@ -116,7 +123,9 @@ impl<C: Crypto> Directory<C> {
         let account = serde_json::to_string(&account)?;
         let account = base64::encode_config(account, base64::URL_SAFE_NO_PAD);
 
-        let mut signer = self.crypto.sign(&keypair, protected.len() + account.len() + 1);
+        let mut signer = self
+            .crypto
+            .sign(&keypair, protected.len() + account.len() + 1);
 
         signer.update(&protected);
         signer.update(b".");
@@ -142,6 +151,10 @@ impl<C: Crypto> Directory<C> {
         let bytes = to_bytes(res.body_mut()).await.unwrap();
         let body = str::from_utf8(&bytes).unwrap();
         println!("{}", body);
+
+        self.persist.put("test", &b"hallo"[..]).await.unwrap();
+        let res = self.persist.get("test").await.unwrap();
+        println!("{:?} {:?}", b"hallo", res.as_slice());
 
         Ok(())
     }
