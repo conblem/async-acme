@@ -4,7 +4,7 @@ use std::fmt;
 use std::fmt::{Display, Formatter};
 use std::future::Future;
 use std::pin::Pin;
-use std::sync::{Mutex, MutexGuard};
+use std::sync::Mutex;
 
 // maybe must be send and sync
 type BoxFuture<'a, T, E> = Pin<Box<dyn Future<Output = Result<T, E>> + Send + 'a>>;
