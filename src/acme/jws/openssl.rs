@@ -157,9 +157,9 @@ impl TryFrom<Vec<u8>> for OpenSSLKeyPair {
 
         Ok(OpenSSLKeyPair {
             key,
-            kid: None,
             x,
             y,
+            kid: None,
         })
     }
 }

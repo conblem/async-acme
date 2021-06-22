@@ -13,20 +13,25 @@ use dto::{ApiAccount, ApiDirectory};
 use jws::{Crypto, CryptoImpl};
 pub(super) use persist::MemoryPersist;
 use persist::Persist;
+use std::convert::TryFrom;
 use tls::{HTTPSConnector, HTTPSError};
 
 mod dto;
 mod jws;
+mod nonce;
 mod persist;
 mod tls;
 
 #[derive(Error, Debug)]
-pub(super) enum DirectoryError<C: Crypto> {
+pub(super) enum DirectoryError<C: Crypto, P: Persist> {
     #[error("IO Error")]
     IO(#[from] io::Error),
 
     #[error("Crypto Error")]
     Crypto(C::Error),
+
+    #[error("Persist Error")]
+    Persist(P::Error),
 
     // todo: does this make sense
     #[error("JSON Error")]
@@ -65,7 +70,7 @@ impl Directory<(), ()> {
     pub(super) async fn from_url<P: Persist>(
         url: &str,
         persist: P,
-    ) -> Result<Directory<CryptoImpl, P>, DirectoryError<CryptoImpl>> {
+    ) -> Result<Directory<CryptoImpl, P>, DirectoryError<CryptoImpl, P>> {
         let connector = HTTPSConnector::new()?;
         let client = Client::builder().build(connector);
         let req = Request::get(url).body(Body::empty())?;
@@ -95,7 +100,7 @@ impl Directory<(), ()> {
 }
 
 impl<C: Crypto, P: Persist> Directory<C, P> {
-    async fn get_nonce(&self) -> Result<Header, DirectoryError<C>> {
+    async fn get_nonce(&self) -> Result<Header, DirectoryError<C, P>> {
         let req = Request::head(&self.directory.new_nonce).body(Body::empty())?;
         let mut res = self.client.request(req).await?;
 
@@ -105,13 +110,19 @@ impl<C: Crypto, P: Persist> Directory<C, P> {
             .ok_or_else(|| DirectoryError::NoNonce)
     }
 
-    pub(super) async fn new_account(&self, tos: bool) -> Result<ApiAccount, DirectoryError<C>> {
-        let nonce = self.get_nonce().await?;
+    pub(super) async fn new_account(&self, tos: bool) -> Result<ApiAccount, DirectoryError<C, P>> {
+        let keypair = match self.persist.get("keypair").await {
+            Err(e) => Err(DirectoryError::Persist(e))?,
+            Ok(Some(keypair)) => C::KeyPair::try_from(keypair),
+            Ok(None) => self.crypto.generate_key(),
+        };
 
-        let mut keypair = match self.crypto.generate_key() {
-            Err(err) => return Err(DirectoryError::Crypto(err)),
+        let mut keypair = match keypair {
+            Err(e) => Err(DirectoryError::Crypto(e))?,
             Ok(keypair) => keypair,
         };
+
+        let nonce = self.get_nonce().await?;
 
         let protected = Protected {
             alg: self.crypto.algorithm(&keypair),
