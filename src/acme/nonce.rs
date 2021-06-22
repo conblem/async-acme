@@ -5,17 +5,20 @@ use hyper::{Body, Client, Request};
 use thiserror::Error;
 use tokio::sync::mpsc;
 use tokio::sync::oneshot;
+use tracing::{info_span, debug_span, Instrument, Span};
 
 use super::{HTTPSConnector, Header};
 
 const REPLAY_NONCE_HEADER: &str = "replay-nonce";
 
-struct NoncePool {
+#[derive(Debug)]
+pub(crate) struct NoncePool {
     sender: mpsc::Sender<oneshot::Sender<Result<Header, NoncePoolError>>>,
+    span: Span,
 }
 
 #[derive(Error, Debug)]
-pub enum NoncePoolError {
+pub(crate) enum NoncePoolError {
     #[error("Background Task stopped")]
     BackgroundClosed,
 
@@ -30,7 +33,10 @@ pub enum NoncePoolError {
 }
 
 impl NoncePool {
-    fn new(client: Client<HTTPSConnector>, url: String) -> Self {
+    pub(crate) fn new(client: Client<HTTPSConnector>, url: String) -> Self {
+        let span = info_span!("NoncePool");
+        let guard = span.enter();
+
         let (sender, mut receiver) =
             mpsc::channel::<oneshot::Sender<Result<Header, NoncePoolError>>>(64);
 
@@ -77,21 +83,27 @@ impl NoncePool {
                     nonce_cache = Some(nonce);
                 }
             }
-        });
+        }.instrument(span.clone()));
 
-        Self { sender }
+        drop(guard);
+        Self { sender, span }
     }
 
-    async fn get_nonce(&self) -> Result<Header, NoncePoolError> {
-        let (sender, receiver) = oneshot::channel();
+    pub(crate) async fn get_nonce(&self) -> Result<Header, NoncePoolError> {
+        let span = debug_span!(parent: &self.span, "Get Nonce");
 
-        self.sender
-            .send(sender)
-            .await
-            .map_err(|_| NoncePoolError::BackgroundClosed)?;
+        async move {
+            let (sender, receiver) = oneshot::channel();
 
-        receiver
-            .await
-            .map_err(|_| NoncePoolError::BackgroundClosed)?
+            self.sender
+                .send(sender)
+                .await
+                .map_err(|_| NoncePoolError::BackgroundClosed)?;
+
+            receiver
+                .await
+                .map_err(|_| NoncePoolError::BackgroundClosed)?
+
+        }.instrument(span).await
     }
 }

@@ -1,5 +1,5 @@
 use hyper::body::to_bytes;
-use hyper::header::{HeaderName, HeaderValue, CONTENT_TYPE, LOCATION};
+use hyper::header::{HeaderValue, CONTENT_TYPE, LOCATION};
 use hyper::http;
 use hyper::{Body, Client, Request};
 use serde::ser::Error as SerError;
@@ -11,6 +11,7 @@ use thiserror::Error;
 
 use dto::{ApiAccount, ApiDirectory};
 use jws::{Crypto, CryptoImpl};
+use nonce::{NoncePool, NoncePoolError};
 pub(super) use persist::MemoryPersist;
 use persist::Persist;
 use std::convert::TryFrom;
@@ -32,6 +33,9 @@ pub(super) enum DirectoryError<C: Crypto, P: Persist> {
 
     #[error("Persist Error")]
     Persist(P::Error),
+
+    #[error("Nonce Pool Error")]
+    NoncePoolError(#[from] NoncePoolError),
 
     // todo: does this make sense
     #[error("JSON Error")]
@@ -59,7 +63,7 @@ pub(super) struct Directory<C, P> {
     client: Client<HTTPSConnector>,
     crypto: C,
     application_jose_json: HeaderValue,
-    replay_nonce_header: HeaderName,
+    nonce_pool: NoncePool,
     persist: P,
 }
 
@@ -78,7 +82,9 @@ impl Directory<(), ()> {
         let mut res = client.request(req).await?;
         let body = to_bytes(res.body_mut()).await?;
 
-        let directory = serde_json::from_slice(body.as_ref())?;
+        let directory: ApiDirectory = serde_json::from_slice(body.as_ref())?;
+
+        let nonce_pool = NoncePool::new(client.clone(), directory.new_nonce.clone());
 
         let crypto = match CryptoImpl::new() {
             Ok(crypto) => crypto,
@@ -89,8 +95,8 @@ impl Directory<(), ()> {
             directory,
             client,
             crypto,
+            nonce_pool,
             application_jose_json: HeaderValue::from_static(APPLICATION_JOSE_JSON),
-            replay_nonce_header: HeaderName::from_static(REPLAY_NONCE_HEADER),
             persist,
         })
     }
@@ -100,16 +106,6 @@ impl Directory<(), ()> {
 }
 
 impl<C: Crypto, P: Persist> Directory<C, P> {
-    async fn get_nonce(&self) -> Result<Header, DirectoryError<C, P>> {
-        let req = Request::head(&self.directory.new_nonce).body(Body::empty())?;
-        let mut res = self.client.request(req).await?;
-
-        res.headers_mut()
-            .remove(&self.replay_nonce_header)
-            .map(Header)
-            .ok_or_else(|| DirectoryError::NoNonce)
-    }
-
     pub(super) async fn new_account(&self, tos: bool) -> Result<ApiAccount, DirectoryError<C, P>> {
         let keypair = match self.persist.get("keypair").await {
             Err(e) => Err(DirectoryError::Persist(e))?,
@@ -122,7 +118,7 @@ impl<C: Crypto, P: Persist> Directory<C, P> {
             Ok(keypair) => keypair,
         };
 
-        let nonce = self.get_nonce().await?;
+        let nonce = self.nonce_pool.get_nonce().await?;
 
         let protected = Protected {
             alg: self.crypto.algorithm(&keypair),
