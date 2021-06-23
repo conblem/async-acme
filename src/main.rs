@@ -14,5 +14,6 @@ async fn main() {
         .await
         .unwrap();
     let account = dir.new_account(true).await.unwrap();
+    let account = dir.new_account(true).await.unwrap();
     println!("{:?}", account);
 }

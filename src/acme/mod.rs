@@ -13,8 +13,8 @@ use dto::{ApiAccount, ApiDirectory};
 use jws::{Crypto, CryptoImpl};
 use nonce::{NoncePool, NoncePoolError};
 pub(super) use persist::MemoryPersist;
-use persist::Persist;
-use std::convert::TryFrom;
+use persist::{DataType, Persist};
+use std::convert::{TryFrom, TryInto};
 use tls::{HTTPSConnector, HTTPSError};
 
 mod dto;
@@ -107,7 +107,7 @@ impl Directory<(), ()> {
 
 impl<C: Crypto, P: Persist> Directory<C, P> {
     pub(super) async fn new_account(&self, tos: bool) -> Result<ApiAccount, DirectoryError<C, P>> {
-        let keypair = match self.persist.get("keypair").await {
+        let keypair = match self.persist.get(DataType::PrivateKey, "keypair").await {
             Err(e) => Err(DirectoryError::Persist(e))?,
             Ok(Some(keypair)) => C::KeyPair::try_from(keypair),
             Ok(None) => self.crypto.generate_key(),
@@ -151,8 +151,7 @@ impl<C: Crypto, P: Persist> Directory<C, P> {
             signature,
         };
 
-        println!("{}", serde_json::to_string(&body)?);
-        let body = Body::from(serde_json::to_vec(&body)?);
+        let body = serde_json::to_vec(&body)?.into();
         let mut req = Request::post(&self.directory.new_account).body(body)?;
         req.headers_mut()
             .insert(CONTENT_TYPE, self.application_jose_json.clone());
@@ -166,6 +165,15 @@ impl<C: Crypto, P: Persist> Directory<C, P> {
             .ok_or_else(|| DirectoryError::NoKid)?;
 
         self.crypto.set_kid(&mut keypair, kid);
+
+        let keypair = match keypair.try_into() {
+            Err(e) => Err(DirectoryError::Crypto(e))?,
+            Ok(keypair) => self.persist.put(DataType::PrivateKey, "keypair", keypair)
+        };
+
+        if let Err(e) = keypair.await {
+            Err(DirectoryError::Persist(e))?
+        }
 
         let bytes = to_bytes(res.body_mut()).await.unwrap();
         let new_account: ApiAccount = serde_json::from_slice(bytes.as_ref())?;

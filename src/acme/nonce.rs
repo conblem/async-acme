@@ -5,7 +5,7 @@ use hyper::{Body, Client, Request};
 use thiserror::Error;
 use tokio::sync::mpsc;
 use tokio::sync::oneshot;
-use tracing::{info_span, debug_span, Instrument, Span};
+use tracing::{debug_span, info_span, Instrument, Span};
 
 use super::{HTTPSConnector, Header};
 
@@ -42,48 +42,51 @@ impl NoncePool {
 
         let replay_nonce_header = HeaderName::from_static(REPLAY_NONCE_HEADER);
 
-        tokio::spawn(async move {
-            let client = &client;
-            let url = &url;
-            let replay_nonce_header = &replay_nonce_header;
+        tokio::spawn(
+            async move {
+                let client = &client;
+                let url = &url;
+                let replay_nonce_header = &replay_nonce_header;
 
-            let get_nonce = || async move {
-                let req = Request::head(url).body(Body::empty())?;
-                let mut res = client.request(req).await?;
+                let get_nonce = || async move {
+                    let req = Request::head(url).body(Body::empty())?;
+                    let mut res = client.request(req).await?;
 
-                res.headers_mut()
-                    .remove(replay_nonce_header)
-                    .map(Header)
-                    .ok_or_else(|| NoncePoolError::NoNonce)
-            };
-
-            let mut nonce_cache = None;
-            loop {
-                // prefetch first nonce from api
-                nonce_cache = match nonce_cache.take() {
-                    Some(Ok(nonce)) => Some(Ok(nonce)),
-                    _ => Some(get_nonce().await),
+                    res.headers_mut()
+                        .remove(replay_nonce_header)
+                        .map(Header)
+                        .ok_or_else(|| NoncePoolError::NoNonce)
                 };
 
-                // wait till first request for nonce arrives
-                let mut sender = match receiver.recv().await {
-                    None => break,
-                    Some(sender) => sender,
-                };
+                let mut nonce_cache = None;
+                loop {
+                    // prefetch first nonce from api
+                    nonce_cache = match nonce_cache.take() {
+                        Some(Ok(nonce)) => Some(Ok(nonce)),
+                        _ => Some(get_nonce().await),
+                    };
 
-                // if there is no nonce at this stage there was an error while accessing the api
-                // so sender gets dropped which will produce an error for the requester
-                let nonce = match nonce_cache.take() {
-                    None => continue,
-                    Some(nonce) => nonce,
-                };
+                    // wait till first request for nonce arrives
+                    let mut sender = match receiver.recv().await {
+                        None => break,
+                        Some(sender) => sender,
+                    };
 
-                // if we cant send back nonce we keep it arround for the next one
-                if let Err(nonce) = sender.send(nonce) {
-                    nonce_cache = Some(nonce);
+                    // if there is no nonce at this stage there was an error while accessing the api
+                    // so sender gets dropped which will produce an error for the requester
+                    let nonce = match nonce_cache.take() {
+                        None => continue,
+                        Some(nonce) => nonce,
+                    };
+
+                    // if we cant send back nonce we keep it arround for the next one
+                    if let Err(nonce) = sender.send(nonce) {
+                        nonce_cache = Some(nonce);
+                    }
                 }
             }
-        }.instrument(span.clone()));
+            .instrument(span.clone()),
+        );
 
         drop(guard);
         Self { sender, span }
@@ -103,7 +106,8 @@ impl NoncePool {
             receiver
                 .await
                 .map_err(|_| NoncePoolError::BackgroundClosed)?
-
-        }.instrument(span).await
+        }
+        .instrument(span)
+        .await
     }
 }
