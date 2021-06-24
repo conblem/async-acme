@@ -36,6 +36,8 @@ tracing-subscriber = { version = "0.2", optional = true }
 
 [dev-dependencies]
 tokio = { version = "1.0", default-features = false, features = ["rt", "macros"] }
+unwrap-infallible = "0.1.5"
+wiremock = "0.5"
 
 [features]
 default = ["rustls"]

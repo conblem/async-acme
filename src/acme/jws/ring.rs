@@ -4,7 +4,7 @@ use ring::rand::SystemRandom;
 use ring::signature::{EcdsaKeyPair, KeyPair, Signature, ECDSA_P384_SHA384_FIXED_SIGNING};
 use serde::ser::{Error as SerError, SerializeStruct};
 use serde::{Serialize, Serializer};
-use std::convert::TryFrom;
+use std::convert::{TryFrom, TryInto};
 use std::fmt;
 use std::fmt::{Display, Formatter};
 use std::str;
@@ -37,7 +37,7 @@ impl Crypto for RingCrypto {
         let document =
             EcdsaKeyPair::generate_pkcs8(&ECDSA_P384_SHA384_FIXED_SIGNING, &self.random)?;
 
-        RingKeyPair::try_from(document)
+        RingKeyPair::try_from(document.as_ref().to_owned())
     }
 
     fn sign<'a, 'b>(
@@ -58,31 +58,11 @@ impl Crypto for RingCrypto {
 }
 
 pub struct RingKeyPair {
-    //[pkcs len][pkcs][kid]
-    // first octet is the pkcs len followed by the pkcs
-    // the remaining bytes are the kid if any
-    document: Document,
+    document: Vec<u8>,
     pair: EcdsaKeyPair,
     x: [u8; X_LEN],
     y: [u8; Y_LEN],
     kid: Option<Header>,
-}
-
-impl TryFrom<Document> for RingKeyPair {
-    type Error = KeyPairError;
-
-    fn try_from(document: Document) -> Result<Self, Self::Error> {
-        let pair = EcdsaKeyPair::from_pkcs8(&ECDSA_P384_SHA384_FIXED_SIGNING, document.as_ref())?;
-        let (x, y) = export_x_y(&pair)?;
-
-        Ok(RingKeyPair {
-            document,
-            pair,
-            kid: None,
-            x,
-            y,
-        })
-    }
 }
 
 fn export_x_y(pair: &EcdsaKeyPair) -> Result<([u8; X_LEN], [u8; Y_LEN]), KeyPairError> {
@@ -112,6 +92,31 @@ fn export_x_y(pair: &EcdsaKeyPair) -> Result<([u8; X_LEN], [u8; Y_LEN]), KeyPair
     };
 
     Ok((x_base64, y_base64))
+}
+
+impl TryInto<Vec<u8>> for RingKeyPair {
+    type Error = <RingCrypto as Crypto>::Error;
+
+    fn try_into(self) -> Result<Vec<u8>, Self::Error> {
+        Ok(self.document)
+    }
+}
+
+impl TryFrom<Vec<u8>> for RingKeyPair {
+    type Error = <RingCrypto as Crypto>::Error;
+
+    fn try_from(document: Vec<u8>) -> Result<Self, Self::Error> {
+        let pair = EcdsaKeyPair::from_pkcs8(&ECDSA_P384_SHA384_FIXED_SIGNING, document.as_ref())?;
+        let (x, y) = export_x_y(&pair)?;
+
+        Ok(RingKeyPair {
+            document,
+            pair,
+            kid: None,
+            x,
+            y,
+        })
+    }
 }
 
 impl Serialize for RingKeyPair {

@@ -1,5 +1,5 @@
 use hyper::body::to_bytes;
-use hyper::header::{HeaderValue, CONTENT_TYPE, LOCATION};
+use hyper::header::{HeaderValue, CONTENT_TYPE, LOCATION, ToStrError};
 use hyper::http;
 use hyper::{Body, Client, Request};
 use serde::ser::Error as SerError;
@@ -168,7 +168,7 @@ impl<C: Crypto, P: Persist> Directory<C, P> {
 
         let keypair = match keypair.try_into() {
             Err(e) => Err(DirectoryError::Crypto(e))?,
-            Ok(keypair) => self.persist.put(DataType::PrivateKey, "keypair", keypair)
+            Ok(keypair) => self.persist.put(DataType::PrivateKey, "keypair", keypair),
         };
 
         if let Err(e) = keypair.await {
@@ -183,6 +183,7 @@ impl<C: Crypto, P: Persist> Directory<C, P> {
     }
 }
 
+#[derive(Debug)]
 pub struct Header(HeaderValue);
 
 impl Serialize for Header {
@@ -190,10 +191,16 @@ impl Serialize for Header {
     where
         S: Serializer,
     {
-        match self.0.to_str() {
+        match self.to_str() {
             Ok(str) => serializer.serialize_str(str),
             Err(e) => Err(SerError::custom(e)),
         }
+    }
+}
+
+impl Header {
+    fn to_str(&self) -> Result<&str, ToStrError> {
+        self.0.to_str()
     }
 }
 

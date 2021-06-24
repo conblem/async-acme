@@ -1,4 +1,5 @@
 use hyper;
+use hyper::client::connect::Connect;
 use hyper::header::HeaderName;
 use hyper::http;
 use hyper::{Body, Client, Request};
@@ -33,7 +34,10 @@ pub(crate) enum NoncePoolError {
 }
 
 impl NoncePool {
-    pub(crate) fn new(client: Client<HTTPSConnector>, url: String) -> Self {
+    pub(crate) fn new<C: Connect + Clone + Send + Sync + 'static>(
+        client: Client<C>,
+        url: String,
+    ) -> Self {
         let span = info_span!("NoncePool");
         let guard = span.enter();
 
@@ -109,5 +113,44 @@ impl NoncePool {
         }
         .instrument(span)
         .await
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use wiremock::matchers::{method, path};
+    use wiremock::{Mock, MockServer, ResponseTemplate};
+
+    use super::*;
+    use std::error::Error;
+
+    async fn create_mock_server(response: ResponseTemplate) -> MockServer {
+        let mock_server = MockServer::start().await;
+
+        Mock::given(method("HEAD"))
+            .and(path("/new_nonce"))
+            .respond_with(response)
+            .mount(&mock_server)
+            .await;
+
+        mock_server
+    }
+
+    fn create_pool(url: String) -> NoncePool {
+        NoncePool::new(Client::new(), url)
+    }
+
+    #[tokio::test]
+    async fn test() -> Result<(), Box<dyn Error + Send + Sync + 'static>> {
+        let expected = "nonce-12345";
+        let response = ResponseTemplate::new(200).append_header(REPLAY_NONCE_HEADER, expected);
+        let mock_server = create_mock_server(response).await;
+
+        let url = format!("{}/new_nonce", &mock_server.uri());
+
+        let actual= pool.get_nonce().await?;
+        assert_eq!(expected, actual.to_str()?);
+
+        Ok(())
     }
 }
