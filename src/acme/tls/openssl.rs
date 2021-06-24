@@ -7,10 +7,10 @@ use std::pin::Pin;
 use tokio::net::TcpStream;
 use tokio_openssl::SslStream;
 
-use super::{connect_tcp, extract_host, HTTPSError};
+use super::{connect_tcp, extract_host, HTTPSError, HttpsConnectorInnerTest};
 use tokio::io::{AsyncRead, AsyncWrite};
 
-pub(super) struct TlsStream(SslStream<TcpStream>);
+pub(crate) struct TlsStream(SslStream<TcpStream>);
 
 impl Deref for TlsStream {
     type Target = SslStream<TcpStream>;
@@ -33,12 +33,12 @@ impl Connection for Pin<TlsStream> {
 }
 
 #[derive(Clone)]
-pub(super) struct HTTPSConnectorInner(SslConnector);
+pub(crate) struct HTTPSConnectorInner(SslConnector);
 
 impl HTTPSConnectorInner {
     pub(crate) fn new<'a, T: Into<Option<&'a [u8]>>>(der: T) -> Result<Self, HTTPSError> {
         let mut builder = SslConnector::builder(SslMethod::tls())?;
-        if let Some(der) = der {
+        if let Some(der) = der.into() {
             let cert = X509::from_der(der)?;
             builder.add_extra_chain_cert(cert)?;
         }
@@ -47,7 +47,10 @@ impl HTTPSConnectorInner {
         Ok(HTTPSConnectorInner(builder.build()))
     }
 
-    pub(super) async fn connect(self, req: Uri) -> Result<TlsStream, HTTPSError> {
+    pub(super) async fn connect(
+        self,
+        req: Uri,
+    ) -> Result<<Self as HttpsConnectorInnerTest>::TlsStream, HTTPSError> {
         let port = req.port_u16();
         let host = extract_host(&req)?;
         let stream = connect_tcp(host, port).await?;
@@ -57,10 +60,10 @@ impl HTTPSConnectorInner {
         let mut tls_stream = SslStream::new(ssl, stream)?;
         Pin::new(&mut tls_stream).connect().await?;
 
-        Ok(TlsStream(tls_stream))
+        Ok(Pin::new(TlsStream(tls_stream)))
     }
 }
 
-impl super::HttpsConnectorInnerTest for HTTPSConnectorInner {
+impl HttpsConnectorInnerTest for HTTPSConnectorInner {
     type TlsStream = Pin<TlsStream>;
 }

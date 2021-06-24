@@ -11,10 +11,10 @@ use tokio_rustls::TlsConnector;
 use webpki::TLSServerTrustAnchors;
 use webpki_roots::TLS_SERVER_ROOTS;
 
-use super::{connect_tcp, extract_host, HTTPSError};
+use super::{connect_tcp, extract_host, HTTPSError, HttpsConnectorInnerTest};
 use tokio::io::{AsyncRead, AsyncWrite};
 
-pub(super) struct TlsStream(RustTlsStream<TcpStream>);
+pub(crate) struct TlsStream(RustTlsStream<TcpStream>);
 
 impl Deref for TlsStream {
     type Target = RustTlsStream<TcpStream>;
@@ -38,7 +38,7 @@ impl Connection for Pin<TlsStream> {
 }
 
 #[derive(Clone)]
-pub(super) struct HTTPSConnectorInner(Arc<ClientConfig>);
+pub(crate) struct HTTPSConnectorInner(Arc<ClientConfig>);
 
 impl HTTPSConnectorInner {
     pub(crate) fn new<'a, T: Into<Option<&'a [u8]>>>(der: T) -> Result<Self, HTTPSError> {
@@ -47,7 +47,7 @@ impl HTTPSConnectorInner {
             .root_store
             .add_server_trust_anchors(&TLS_SERVER_ROOTS);
 
-        if let Some(der) = der {
+        if let Some(der) = der.into() {
             let anchor = [webpki::trust_anchor_util::cert_der_as_trust_anchor(der).unwrap()];
             let anchor = TLSServerTrustAnchors(&anchor);
             config.root_store.add_server_trust_anchors(&anchor);
@@ -56,7 +56,10 @@ impl HTTPSConnectorInner {
         Ok(HTTPSConnectorInner(Arc::new(config)))
     }
 
-    pub(super) async fn connect(self, uri: Uri) -> Result<TlsStream, HTTPSError> {
+    pub(super) async fn connect(
+        self,
+        uri: Uri,
+    ) -> Result<<Self as HttpsConnectorInnerTest>::TlsStream, HTTPSError> {
         let port = uri.port_u16();
         let host = extract_host(&uri)?;
         let dns = DNSNameRef::try_from_ascii_str(&host)?;
@@ -66,11 +69,10 @@ impl HTTPSConnectorInner {
         let tls_connector = TlsConnector::from(self.0);
         let tls_stream = tls_connector.connect(dns, stream).await?;
 
-        Ok(TlsStream(tls_stream))
+        Ok(Pin::new(TlsStream(tls_stream)))
     }
 }
 
-impl super::HttpsConnectorInnerTest for HTTPSConnectorInner {
+impl HttpsConnectorInnerTest for HTTPSConnectorInner {
     type TlsStream = Pin<TlsStream>;
 }
-

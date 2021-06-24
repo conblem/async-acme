@@ -43,9 +43,9 @@ pub(crate) enum HTTPSError {
 
 // if both all features are selected use ring
 #[cfg(feature = "rustls")]
-type HttpsConnectorInner = rustls::HTTPSConnectorInner;
+pub(crate) type HttpsConnectorInner = rustls::HTTPSConnectorInner;
 #[cfg(all(not(feature = "rustls"), feature = "open-ssl"))]
-type HttpsConnectorInner = openssl::HTTPSConnectorInner;
+pub(crate) type HttpsConnectorInner = openssl::HTTPSConnectorInner;
 
 pub(crate) type HttpsConnector = HTTPSConnectorGeneric<HttpsConnectorInner>;
 
@@ -102,7 +102,8 @@ async fn connect_tcp(host: &str, port: Option<u16>) -> Result<TcpStream, HTTPSEr
     Ok(stream)
 }
 
-trait HttpsConnectorInnerTest: Clone {
+// todo: rename
+pub(crate) trait HttpsConnectorInnerTest: Clone {
     type TlsStream: AsyncRead + AsyncWrite + Connection;
 }
 
@@ -113,6 +114,8 @@ mod tests {
 
     #[tokio::test]
     async fn test() -> Result<(), Box<dyn Error + Send + Sync + 'static>> {
+        let rustls_connector = rustls::HTTPSConnectorInner::new(None)?;
+        let rustls_connector = HTTPSConnectorGeneric(rustls_connector);
         Ok(())
     }
 }
