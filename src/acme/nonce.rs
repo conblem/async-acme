@@ -8,7 +8,7 @@ use tokio::sync::mpsc;
 use tokio::sync::oneshot;
 use tracing::{debug_span, info_span, Instrument, Span};
 
-use super::{HTTPSConnector, Header};
+use super::{Header, HttpsConnector};
 
 const REPLAY_NONCE_HEADER: &str = "replay-nonce";
 
@@ -146,9 +146,9 @@ mod tests {
         let response = ResponseTemplate::new(200).append_header(REPLAY_NONCE_HEADER, expected);
         let mock_server = create_mock_server(response).await;
 
-        let url = format!("{}/new_nonce", &mock_server.uri());
+        let pool = create_pool(format!("{}/new_nonce", &mock_server.uri()));
 
-        let actual= pool.get_nonce().await?;
+        let actual = pool.get_nonce().await?;
         assert_eq!(expected, actual.to_str()?);
 
         Ok(())

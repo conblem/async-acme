@@ -9,21 +9,13 @@ use std::task::{Context, Poll};
 use thiserror::Error;
 use tokio::net::{lookup_host, TcpStream};
 
-#[cfg(feature = "rustls")]
-use tokio_rustls::webpki::InvalidDNSNameError;
-#[cfg(feature = "rustls")]
+#[cfg(any(feature = "rustls", test))]
 mod rustls;
-#[cfg(feature = "rustls")]
-use rustls::{HTTPSConnectorInner, TlsStream};
 
-#[cfg(feature = "open-ssl")]
+#[cfg(any(feature = "open-ssl", test))]
 mod openssl;
-#[cfg(feature = "open-ssl")]
-use self::openssl::{HTTPSConnectorInner, TlsStream};
-#[cfg(feature = "open-ssl")]
-use ::openssl::error::ErrorStack;
-#[cfg(feature = "open-ssl")]
-use ::openssl::ssl::Error as SSLError;
+
+use tokio::io::{AsyncRead, AsyncWrite};
 
 #[derive(Error, Debug)]
 pub(crate) enum HTTPSError {
@@ -38,29 +30,44 @@ pub(crate) enum HTTPSError {
 
     #[cfg(feature = "rustls")]
     #[error("Invalid DNS Name")]
-    InvalidDNSName(#[from] InvalidDNSNameError),
+    InvalidDNSName(#[from] tokio_rustls::webpki::InvalidDNSNameError),
 
     #[cfg(feature = "open-ssl")]
     #[error("OpenSSL Error Stack")]
-    OpenSSLErrorStack(#[from] ErrorStack),
+    OpenSSLErrorStack(#[from] ::openssl::error::ErrorStack),
 
     #[cfg(feature = "open-ssl")]
     #[error("OpenSSL SSL Error")]
-    OpenSSLErrorSSL(#[from] SSLError),
+    OpenSSLErrorSSL(#[from] ::openssl::ssl::Error),
 }
 
-#[derive(Clone)]
-pub(crate) struct HTTPSConnector(HTTPSConnectorInner);
+// if both all features are selected use ring
+#[cfg(feature = "rustls")]
+type HttpsConnectorInner = rustls::HTTPSConnectorInner;
+#[cfg(all(not(feature = "rustls"), feature = "open-ssl"))]
+type HttpsConnectorInner = openssl::HTTPSConnectorInner;
 
-impl HTTPSConnector {
-    pub(crate) fn new() -> Result<Self, HTTPSError> {
-        let inner = HTTPSConnectorInner::new()?;
-        Ok(HTTPSConnector(inner))
+pub(crate) type HttpsConnector = HTTPSConnectorGeneric<HttpsConnectorInner>;
+
+#[derive(Clone)]
+pub(crate) struct HTTPSConnectorGeneric<I>(I);
+
+impl<I> HTTPSConnectorGeneric<I> {
+    #[cfg(feature = "rustls")]
+    pub(crate) fn new() -> Result<HttpsConnector, HTTPSError> {
+        let inner = rustls::HTTPSConnectorInner::new(None)?;
+        return Ok(HTTPSConnectorGeneric(inner));
+    }
+
+    #[cfg(all(not(feature = "rustls"), feature = "open-ssl"))]
+    pub(crate) fn new() -> Result<HttpsConnector, HTTPSError> {
+        let inner = rustls::HTTPSConnectorInner::new(None)?;
+        return Ok(HTTPSConnectorGeneric(inner));
     }
 }
 
-impl Service<Uri> for HTTPSConnector {
-    type Response = Pin<TlsConnection<TlsStream>>;
+impl Service<Uri> for HTTPSConnectorGeneric<HttpsConnectorInner> {
+    type Response = <HttpsConnectorInner as HttpsConnectorInnerTest>::TlsStream;
     type Error = HTTPSError;
     type Future = Pin<Box<dyn Future<Output = Result<Self::Response, Self::Error>> + Send + Sync>>;
 
@@ -74,34 +81,6 @@ impl Service<Uri> for HTTPSConnector {
             let tls_connection = inner.connect(uri).await?;
             Ok(tls_connection.into())
         })
-    }
-}
-
-pub(crate) struct TlsConnection<T>(T);
-
-impl<T> Deref for TlsConnection<T> {
-    type Target = T;
-
-    fn deref(&self) -> &Self::Target {
-        &self.0
-    }
-}
-
-impl<T> DerefMut for TlsConnection<T> {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.0
-    }
-}
-
-impl<T> Connection for Pin<TlsConnection<T>> {
-    fn connected(&self) -> Connected {
-        Connected::new()
-    }
-}
-
-impl<T: Unpin> From<T> for Pin<TlsConnection<T>> {
-    fn from(stream: T) -> Self {
-        Pin::new(TlsConnection(stream))
     }
 }
 
@@ -121,4 +100,19 @@ async fn connect_tcp(host: &str, port: Option<u16>) -> Result<TcpStream, HTTPSEr
 
     let stream = TcpStream::connect(ip).await?;
     Ok(stream)
+}
+
+trait HttpsConnectorInnerTest: Clone {
+    type TlsStream: AsyncRead + AsyncWrite + Connection;
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::error::Error;
+
+    #[tokio::test]
+    async fn test() -> Result<(), Box<dyn Error + Send + Sync + 'static>> {
+        Ok(())
+    }
 }

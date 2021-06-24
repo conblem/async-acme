@@ -1,4 +1,5 @@
 use serde::Serialize;
+use std::convert::{TryFrom, TryInto};
 use std::error::Error as StdError;
 use std::fmt::Debug;
 use std::str;
@@ -11,12 +12,11 @@ mod openssl;
 #[cfg(feature = "open-ssl")]
 pub use self::openssl::OpenSSLCrypto as CryptoImpl;
 
-#[cfg(feature = "rustls")]
+#[cfg(all(not(feature = "rustls"), feature = "rustls"))]
 mod ring;
 
-#[cfg(feature = "rustls")]
+#[cfg(all(not(feature = "rustls"), feature = "rustls"))]
 pub use self::ring::RingCrypto as CryptoImpl;
-use std::convert::{TryFrom, TryInto};
 
 pub trait Crypto: Debug + Sized {
     type Signer: Sign<Crypto = Self>;

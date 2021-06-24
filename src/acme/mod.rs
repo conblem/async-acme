@@ -1,5 +1,5 @@
 use hyper::body::to_bytes;
-use hyper::header::{HeaderValue, CONTENT_TYPE, LOCATION, ToStrError};
+use hyper::header::{HeaderValue, ToStrError, CONTENT_TYPE, LOCATION};
 use hyper::http;
 use hyper::{Body, Client, Request};
 use serde::ser::Error as SerError;
@@ -15,7 +15,7 @@ use nonce::{NoncePool, NoncePoolError};
 pub(super) use persist::MemoryPersist;
 use persist::{DataType, Persist};
 use std::convert::{TryFrom, TryInto};
-use tls::{HTTPSConnector, HTTPSError};
+use tls::{HTTPSError, HttpsConnector};
 
 mod dto;
 mod jws;
@@ -60,7 +60,7 @@ pub(super) enum DirectoryError<C: Crypto, P: Persist> {
 #[derive(Debug)]
 pub(super) struct Directory<C, P> {
     directory: ApiDirectory,
-    client: Client<HTTPSConnector>,
+    client: Client<HttpsConnector>,
     crypto: C,
     application_jose_json: HeaderValue,
     nonce_pool: NoncePool,
@@ -75,7 +75,7 @@ impl Directory<(), ()> {
         url: &str,
         persist: P,
     ) -> Result<Directory<CryptoImpl, P>, DirectoryError<CryptoImpl, P>> {
-        let connector = HTTPSConnector::new()?;
+        let connector = HttpsConnector::new()?;
         let client = Client::builder().build(connector);
         let req = Request::get(url).body(Body::empty())?;
 
