@@ -4,6 +4,7 @@ use hyper::http;
 use hyper::{Body, Client, Request};
 use serde::ser::Error as SerError;
 use serde::{Serialize, Serializer};
+use std::convert::{TryFrom, TryInto};
 use std::fmt::Debug;
 use std::io;
 use std::str;
@@ -14,7 +15,6 @@ use jws::{Crypto, CryptoImpl};
 use nonce::{NoncePool, NoncePoolError};
 pub(super) use persist::MemoryPersist;
 use persist::{DataType, Persist};
-use std::convert::{TryFrom, TryInto};
 use tls::{HTTPSError, HttpsConnector};
 
 mod dto;

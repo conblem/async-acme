@@ -109,13 +109,50 @@ pub(crate) trait HttpsConnectorInnerTest: Clone {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use hyper::body::to_bytes;
+    use hyper::{Body, Client};
+    use std::convert::TryInto;
     use std::error::Error;
+    use std::net::SocketAddr;
+    use std::str;
+    use warp::Filter;
+
+    use super::*;
+
+    fn server() -> SocketAddr {
+        let routes = warp::any().map(|| "Hello, World!");
+
+        let localhost = include_bytes!("localhost.crt");
+        let localhost_key = include_bytes!("localhost.key");
+
+        let (addr, fut) = warp::serve(routes)
+            .tls()
+            .cert(localhost)
+            .key(localhost_key)
+            .bind_ephemeral(([127, 0, 0, 1], 0));
+
+        tokio::spawn(fut);
+
+        addr
+    }
 
     #[tokio::test]
     async fn test() -> Result<(), Box<dyn Error + Send + Sync + 'static>> {
-        let rustls_connector = rustls::HTTPSConnectorInner::new(None)?;
+        let addr = server();
+
+        let ca = include_bytes!("ca.der");
+        let rustls_connector = rustls::HTTPSConnectorInner::new(&ca[..])?;
         let rustls_connector = HTTPSConnectorGeneric(rustls_connector);
+        let rustls_client = Client::builder()
+            .build::<HTTPSConnectorGeneric<rustls::HTTPSConnectorInner>, Body>(rustls_connector);
+
+        let mut res = rustls_client
+            .get(format!("http://localhost:{}", addr.port()).try_into()?)
+            .await?;
+        let body = to_bytes(res.body_mut()).await.unwrap();
+        let actual = str::from_utf8(body.as_ref())?;
+
+        assert_eq!("Hello, World!", actual);
         Ok(())
     }
 }
