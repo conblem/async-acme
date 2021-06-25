@@ -1,5 +1,6 @@
 use hyper::client::connect::{Connected, Connection};
 use hyper::Uri;
+use std::future::Future;
 use std::ops::{Deref, DerefMut};
 use std::pin::Pin;
 use std::sync::Arc;
@@ -11,8 +12,7 @@ use tokio_rustls::TlsConnector;
 use webpki::TLSServerTrustAnchors;
 use webpki_roots::TLS_SERVER_ROOTS;
 
-use super::{connect_tcp, extract_host, HTTPSError, HttpsConnectorInnerTest};
-use tokio::io::{AsyncRead, AsyncWrite};
+use super::{connect_tcp, extract_host, HTTPSError, Inner};
 
 pub(crate) struct TlsStream(RustTlsStream<TcpStream>);
 
@@ -37,42 +37,32 @@ impl Connection for Pin<TlsStream> {
     }
 }
 
-#[derive(Clone)]
-pub(crate) struct HTTPSConnectorInner(Arc<ClientConfig>);
+pub(super) fn connector<'a, T: Into<Option<&'a [u8]>>>(
+    der: T,
+) -> Result<impl Inner<Output = impl Future<Output = Result<Pin<TlsStream>, HTTPSError>>>, HTTPSError> {
+    let mut config = ClientConfig::new();
+    config
+        .root_store
+        .add_server_trust_anchors(&TLS_SERVER_ROOTS);
 
-impl HTTPSConnectorInner {
-    pub(crate) fn new<'a, T: Into<Option<&'a [u8]>>>(der: T) -> Result<Self, HTTPSError> {
-        let mut config = ClientConfig::new();
-        config
-            .root_store
-            .add_server_trust_anchors(&TLS_SERVER_ROOTS);
-
-        if let Some(der) = der.into() {
-            let anchor = [webpki::trust_anchor_util::cert_der_as_trust_anchor(der).unwrap()];
-            let anchor = TLSServerTrustAnchors(&anchor);
-            config.root_store.add_server_trust_anchors(&anchor);
-        }
-
-        Ok(HTTPSConnectorInner(Arc::new(config)))
+    if let Some(der) = der.into() {
+        let anchor = [webpki::trust_anchor_util::cert_der_as_trust_anchor(der).unwrap()];
+        let anchor = TLSServerTrustAnchors(&anchor);
+        config.root_store.add_server_trust_anchors(&anchor);
     }
 
-    pub(super) async fn connect(
-        self,
-        uri: Uri,
-    ) -> Result<<Self as HttpsConnectorInnerTest>::TlsStream, HTTPSError> {
-        let port = uri.port_u16();
-        let host = extract_host(&uri)?;
+    let config = Arc::new(config);
+
+    Ok(|req: Uri| async move {
+        let port = req.port_u16();
+        let host = extract_host(&req)?;
         let dns = DNSNameRef::try_from_ascii_str(&host)?;
 
         let stream = connect_tcp(host, port).await?;
 
-        let tls_connector = TlsConnector::from(self.0);
+        let tls_connector = TlsConnector::from(config);
         let tls_stream = tls_connector.connect(dns, stream).await?;
 
         Ok(Pin::new(TlsStream(tls_stream)))
-    }
-}
-
-impl HttpsConnectorInnerTest for HTTPSConnectorInner {
-    type TlsStream = Pin<TlsStream>;
+    })
 }

@@ -11,6 +11,7 @@ use std::str;
 use thiserror::Error;
 
 use dto::{ApiAccount, ApiDirectory};
+use hyper::client::connect::Connect;
 use jws::{Crypto, CryptoImpl};
 use nonce::{NoncePool, NoncePoolError};
 pub(super) use persist::MemoryPersist;
@@ -58,9 +59,9 @@ pub(super) enum DirectoryError<C: Crypto, P: Persist> {
 }
 
 #[derive(Debug)]
-pub(super) struct Directory<C, P> {
+pub(super) struct Directory<C, I, P> {
     directory: ApiDirectory,
-    client: Client<HttpsConnector>,
+    client: Client<I>,
     crypto: C,
     application_jose_json: HeaderValue,
     nonce_pool: NoncePool,
@@ -70,11 +71,14 @@ pub(super) struct Directory<C, P> {
 const APPLICATION_JOSE_JSON: &str = "application/jose+json";
 const REPLAY_NONCE_HEADER: &str = "replay-nonce";
 
-impl Directory<(), ()> {
+impl Directory<(), (), ()> {
     pub(super) async fn from_url<P: Persist>(
         url: &str,
         persist: P,
-    ) -> Result<Directory<CryptoImpl, P>, DirectoryError<CryptoImpl, P>> {
+    ) -> Result<
+        Directory<CryptoImpl, impl Connect + Clone + Send + Sync + 'static, P>,
+        DirectoryError<CryptoImpl, P>,
+    > {
         let connector = HttpsConnector::new()?;
         let client = Client::builder().build(connector);
         let req = Request::get(url).body(Body::empty())?;
@@ -105,7 +109,7 @@ impl Directory<(), ()> {
         "https://acme-staging-v02.api.letsencrypt.org/directory";
 }
 
-impl<C: Crypto, P: Persist> Directory<C, P> {
+impl<C: Crypto, I: Connect + Clone + Send + Sync + 'static, P: Persist> Directory<C, I, P> {
     pub(super) async fn new_account(&self, tos: bool) -> Result<ApiAccount, DirectoryError<C, P>> {
         let keypair = match self.persist.get(DataType::PrivateKey, "keypair").await {
             Err(e) => Err(DirectoryError::Persist(e))?,

@@ -1,21 +1,19 @@
-use hyper::client::connect::{Connected, Connection};
+use hyper::client::connect::{Connect, Connection};
 use hyper::service::Service;
 use hyper::Uri;
 use std::future::Future;
 use std::io;
-use std::ops::{Deref, DerefMut};
 use std::pin::Pin;
 use std::task::{Context, Poll};
 use thiserror::Error;
+use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::net::{lookup_host, TcpStream};
 
-#[cfg(any(feature = "rustls", test))]
+#[cfg(feature = "rustls")]
 mod rustls;
 
-#[cfg(any(feature = "open-ssl", test))]
+#[cfg(feature = "open-ssl")]
 mod openssl;
-
-use tokio::io::{AsyncRead, AsyncWrite};
 
 #[derive(Error, Debug)]
 pub(crate) enum HTTPSError {
@@ -41,33 +39,41 @@ pub(crate) enum HTTPSError {
     OpenSSLErrorSSL(#[from] ::openssl::ssl::Error),
 }
 
-// if both all features are selected use ring
-#[cfg(feature = "rustls")]
-pub(crate) type HttpsConnectorInner = rustls::HTTPSConnectorInner;
-#[cfg(all(not(feature = "rustls"), feature = "open-ssl"))]
-pub(crate) type HttpsConnectorInner = openssl::HTTPSConnectorInner;
+pub(crate) trait Inner: Clone + FnOnce(Uri) -> <Self as Inner>::Output {
+    type Output;
+}
 
-pub(crate) type HttpsConnector = HTTPSConnectorGeneric<HttpsConnectorInner>;
+impl<O, F> Inner for F
+where
+    F: Clone + FnOnce(Uri) -> O,
+{
+    type Output = O;
+}
 
 #[derive(Clone)]
-pub(crate) struct HTTPSConnectorGeneric<I>(I);
+pub(crate) struct HttpsConnector<I>(I);
 
-impl<I> HTTPSConnectorGeneric<I> {
+impl HttpsConnector<()> {
     #[cfg(feature = "rustls")]
-    pub(crate) fn new() -> Result<HttpsConnector, HTTPSError> {
-        let inner = rustls::HTTPSConnectorInner::new(None)?;
-        return Ok(HTTPSConnectorGeneric(inner));
+    pub(crate) fn new() -> Result<impl Connect + Clone + Send + Sync + 'static, HTTPSError> {
+        let inner = openssl::connector(None)?;
+        Ok(HttpsConnector(inner))
     }
 
-    #[cfg(all(not(feature = "rustls"), feature = "open-ssl"))]
-    pub(crate) fn new() -> Result<HttpsConnector, HTTPSError> {
-        let inner = rustls::HTTPSConnectorInner::new(None)?;
-        return Ok(HTTPSConnectorGeneric(inner));
+    #[cfg(all(feature = "openssl", not(feature = "rustls")))]
+    pub(crate) fn new() -> Result<impl Connect + Clone + Send + Sync + 'static, HTTPSError> {
+        let inner = rustls::connector(None)?;
+        Ok(HttpsConnector(inner))
     }
 }
 
-impl Service<Uri> for HTTPSConnectorGeneric<HttpsConnectorInner> {
-    type Response = <HttpsConnectorInner as HttpsConnectorInnerTest>::TlsStream;
+impl<S, F, I> Service<Uri> for HttpsConnector<I>
+where
+    S: AsyncRead + AsyncWrite + Connection + 'static,
+    F: Future<Output = Result<S, HTTPSError>> + Send + Sync + 'static,
+    I: Inner<Output = F>,
+{
+    type Response = S;
     type Error = HTTPSError;
     type Future = Pin<Box<dyn Future<Output = Result<Self::Response, Self::Error>> + Send + Sync>>;
 
@@ -75,12 +81,10 @@ impl Service<Uri> for HTTPSConnectorGeneric<HttpsConnectorInner> {
         Poll::Ready(Ok(()))
     }
 
-    fn call(&mut self, uri: Uri) -> Self::Future {
+    fn call(&mut self, req: Uri) -> Self::Future {
         let inner = self.0.clone();
-        Box::pin(async move {
-            let tls_connection = inner.connect(uri).await?;
-            Ok(tls_connection.into())
-        })
+
+        Box::pin(inner(req))
     }
 }
 
@@ -100,11 +104,6 @@ async fn connect_tcp(host: &str, port: Option<u16>) -> Result<TcpStream, HTTPSEr
 
     let stream = TcpStream::connect(ip).await?;
     Ok(stream)
-}
-
-// todo: rename
-pub(crate) trait HttpsConnectorInnerTest: Clone {
-    type TlsStream: AsyncRead + AsyncWrite + Connection;
 }
 
 #[cfg(test)]
@@ -137,17 +136,25 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test() -> Result<(), Box<dyn Error + Send + Sync + 'static>> {
+    async fn run() -> Result<(), Box<dyn Error + Send + Sync + 'static>> {
         let addr = server();
-
         let ca = include_bytes!("ca.der");
-        let rustls_connector = rustls::HTTPSConnectorInner::new(&ca[..])?;
-        let rustls_connector = HTTPSConnectorGeneric(rustls_connector);
-        let rustls_client = Client::builder()
-            .build::<HTTPSConnectorGeneric<rustls::HTTPSConnectorInner>, Body>(rustls_connector);
 
-        let mut res = rustls_client
-            .get(format!("http://localhost:{}", addr.port()).try_into()?)
+        let rustls_inner = rustls::connector(&ca[..])?;
+        test(rustls_inner, &addr).await?;
+
+        let openssl_inner = openssl::connector(&ca[..])?;
+        test(openssl_inner, &addr).await?;
+
+        Ok(())
+    }
+
+    async fn test<I>(inner: I, addr: &SocketAddr) -> Result<(), Box<dyn Error + Send + Sync + 'static>> where HttpsConnector<I>: Connect + Clone + Send + Sync + 'static {
+        let connector = HttpsConnector(inner);
+        let client = Client::builder().build::<_, Body>(connector);
+
+        let mut res = client
+            .get(format!("https://localhost:{}", addr.port()).try_into()?)
             .await?;
         let body = to_bytes(res.body_mut()).await.unwrap();
         let actual = str::from_utf8(body.as_ref())?;
