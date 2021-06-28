@@ -57,13 +57,13 @@ pub(crate) struct HttpsConnector<I>(I);
 impl HttpsConnector<()> {
     #[cfg(feature = "rustls")]
     pub(crate) fn new() -> Result<impl Connect + Clone + Send + Sync + 'static, HTTPSError> {
-        let inner = openssl::connector(None)?;
+        let inner = rustls::connector(None)?;
         Ok(HttpsConnector(inner))
     }
 
     #[cfg(all(feature = "openssl", not(feature = "rustls")))]
     pub(crate) fn new() -> Result<impl Connect + Clone + Send + Sync + 'static, HTTPSError> {
-        let inner = rustls::connector(None)?;
+        let inner = openssl::connector(None)?;
         Ok(HttpsConnector(inner))
     }
 }

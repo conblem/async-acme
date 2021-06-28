@@ -6,16 +6,16 @@ use std::str;
 
 use super::Header;
 
-#[cfg(feature = "open-ssl")]
+#[cfg(all(feature = "openssl", not(feature = "rustls")))]
 mod openssl;
 
-#[cfg(feature = "open-ssl")]
+#[cfg(all(feature = "openssl", not(feature = "rustls")))]
 pub use self::openssl::OpenSSLCrypto as CryptoImpl;
 
-#[cfg(all(not(feature = "rustls"), feature = "rustls"))]
+#[cfg(feature = "rustls")]
 mod ring;
 
-#[cfg(all(not(feature = "rustls"), feature = "rustls"))]
+#[cfg(feature = "rustls")]
 pub use self::ring::RingCrypto as CryptoImpl;
 
 pub trait Crypto: Debug + Sized {

@@ -1,5 +1,4 @@
 use ring::error::{KeyRejected, Unspecified};
-use ring::pkcs8::Document;
 use ring::rand::SystemRandom;
 use ring::signature::{EcdsaKeyPair, KeyPair, Signature, ECDSA_P384_SHA384_FIXED_SIGNING};
 use serde::ser::{Error as SerError, SerializeStruct};
