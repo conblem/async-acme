@@ -39,13 +39,15 @@ impl Connection for Pin<TlsStream> {
 
 pub(super) fn connector<'a, T: Into<Option<&'a [u8]>>>(
     der: T,
-) -> Result<impl Inner<Output = impl Future<Output = Result<Pin<TlsStream>, HTTPSError>>>, HTTPSError> {
+) -> Result<impl Inner<Output = impl Future<Output = Result<Pin<TlsStream>, HTTPSError>>>, HTTPSError>
+{
     let mut config = ClientConfig::new();
     config
         .root_store
         .add_server_trust_anchors(&TLS_SERVER_ROOTS);
 
     if let Some(der) = der.into() {
+        // todo handle this error
         let anchor = [webpki::trust_anchor_util::cert_der_as_trust_anchor(der).unwrap()];
         let anchor = TLSServerTrustAnchors(&anchor);
         config.root_store.add_server_trust_anchors(&anchor);

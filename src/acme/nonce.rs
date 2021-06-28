@@ -71,7 +71,7 @@ impl NoncePool {
                     };
 
                     // wait till first request for nonce arrives
-                    let mut sender = match receiver.recv().await {
+                    let sender = match receiver.recv().await {
                         None => break,
                         Some(sender) => sender,
                     };
