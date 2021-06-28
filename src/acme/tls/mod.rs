@@ -3,6 +3,7 @@ use hyper::service::Service;
 use hyper::Uri;
 use std::future::Future;
 use std::io;
+use std::net::SocketAddr;
 use std::pin::Pin;
 use std::task::{Context, Poll};
 use thiserror::Error;
@@ -99,8 +100,12 @@ async fn connect_tcp(host: &str, port: Option<u16>) -> Result<TcpStream, HTTPSEr
     let port = port.unwrap_or(443);
     let host_with_port = format!("{}:{}", host, port);
 
-    let mut ips = lookup_host(host_with_port).await?;
-    let ip = ips.next().ok_or(HTTPSError::EmptyLookup)?;
+    // think about ipv6 handling
+    let ip = lookup_host(host_with_port)
+        .await?
+        .filter(|ip| matches!(ip, SocketAddr::V4(_)))
+        .next()
+        .ok_or(HTTPSError::EmptyLookup)?;
 
     let stream = TcpStream::connect(ip).await?;
     Ok(stream)
@@ -135,7 +140,7 @@ mod tests {
         addr
     }
 
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn run() -> Result<(), Box<dyn Error + Send + Sync + 'static>> {
         let addr = server();
         let ca = include_bytes!("ca.der");
@@ -162,7 +167,7 @@ mod tests {
         let mut res = client
             .get(format!("https://localhost:{}", addr.port()).try_into()?)
             .await?;
-        let body = to_bytes(res.body_mut()).await.unwrap();
+        let body = to_bytes(res.body_mut()).await?;
         let actual = str::from_utf8(body.as_ref())?;
 
         assert_eq!("Hello, World!", actual);
