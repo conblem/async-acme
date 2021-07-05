@@ -89,7 +89,7 @@ impl NoncePool {
                     }
                 }
             }
-            .instrument(span.clone()),
+            .in_current_span(),
         );
 
         drop(guard);
