@@ -185,6 +185,24 @@ impl<C: Crypto, I: Connect + Clone + Send + Sync + 'static, P: Persist> Director
         account.status = new_account.status;
         Ok(account)
     }
+
+    // wip
+    pub(super) async fn new_order(&self, tos: bool) -> Result<(), DirectoryError<C, P>> {
+        let keypair = match self.persist.get(DataType::PrivateKey, "keypair").await {
+            Err(e) => Err(DirectoryError::Persist(e))?,
+            Ok(Some(keypair)) => C::KeyPair::try_from(keypair),
+            Ok(None) => self.crypto.generate_key(),
+        };
+
+        let mut keypair = match keypair {
+            Err(e) => Err(DirectoryError::Crypto(e))?,
+            Ok(keypair) => keypair,
+        };
+
+        let nonce = self.nonce_pool.get_nonce().await?;
+
+        Ok(())
+    }
 }
 
 #[derive(Debug)]

@@ -96,18 +96,24 @@ fn extract_host(req: &Uri) -> Result<&str, HTTPSError> {
     }
 }
 
+// todo: make connction function injectable for testing purposes
 async fn connect_tcp(host: &str, port: Option<u16>) -> Result<TcpStream, HTTPSError> {
     let port = port.unwrap_or(443);
     let host_with_port = format!("{}:{}", host, port);
 
-    // think about ipv6 handling
-    let ip = lookup_host(host_with_port)
-        .await?
-        .filter(|ip| matches!(ip, SocketAddr::V4(_)))
-        .next()
-        .ok_or(HTTPSError::EmptyLookup)?;
+    let stream = if cfg!(feature = "happy-eyeballs") {
+        happyeyeballs::connect(host_with_port).await?
+    } else {
+        // think about ipv6 handling
+        let ip = lookup_host(host_with_port)
+            .await?
+            .filter(|ip| matches!(ip, SocketAddr::V4(_)))
+            .next()
+            .ok_or(HTTPSError::EmptyLookup)?;
 
-    let stream = TcpStream::connect(ip).await?;
+        TcpStream::connect(ip).await?
+    };
+
     Ok(stream)
 }
 

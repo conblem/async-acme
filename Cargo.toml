@@ -32,6 +32,9 @@ webpki = { version = "0.21", optional = true }
 openssl = { version = "0.10", optional = true, default-features = false }
 tokio-openssl = { version = "0.6", optional = true, default-features = false }
 
+# happyeyeballs feature
+happyeyeballs = { version = "0.1", optional = true }
+
 # binary dep
 tracing-subscriber = { version = "0.2", optional = true }
 
@@ -46,8 +49,9 @@ default = ["rustls"]
 
 # move to dedicated feature
 rustls = ["ring", "tokio-rustls", "webpki-roots", "webpki"]
-# todo: change jws logic to openssl
 # stupid name fix this but cannot be same as dep
 open-ssl = ["ring", "tokio-openssl", "openssl"]
+
+happy-eyeballs = ["happyeyeballs"]
 
 build-binary = ["tokio/macros", "tokio/rt-multi-thread", "tracing-subscriber"]
