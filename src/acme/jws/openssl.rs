@@ -8,8 +8,7 @@ use openssl::sha::Sha384;
 use serde::ser::{Error as SerError, SerializeStruct};
 use serde::{Serialize, Serializer};
 use std::convert::{TryFrom, TryInto};
-use std::fmt;
-use std::fmt::{Debug, Display, Formatter, Result as FmtResult};
+use std::fmt::{self, Debug, Display, Formatter};
 use std::str;
 use thiserror::Error;
 
@@ -34,13 +33,14 @@ impl Display for XY {
     }
 }
 
+#[derive(Clone)]
 pub struct OpenSSLCrypto {
     group: EcGroup,
 }
 
 impl Debug for OpenSSLCrypto {
-    fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
-        write!(f, "OpenSSLCrypto")
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        f.debug_struct("OpenSSLCrypto").finish()
     }
 }
 
@@ -135,6 +135,16 @@ pub struct OpenSSLKeyPair {
     x: [u8; X_LEN],
     y: [u8; Y_LEN],
     kid: Option<Header>,
+}
+
+impl Debug for OpenSSLKeyPair {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        f.debug_struct("OpenSSLKeyPair")
+            .field("x", &self.x)
+            .field("y", &self.y)
+            .field("kid", &self.kid)
+            .finish()
+    }
 }
 
 impl TryInto<Vec<u8>> for OpenSSLKeyPair {

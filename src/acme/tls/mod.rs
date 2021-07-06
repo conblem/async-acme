@@ -1,6 +1,7 @@
-use hyper::client::connect::{Connect, Connection};
+use hyper::client::connect::{Connect as HyperConnect, Connection};
 use hyper::service::Service;
 use hyper::Uri;
+use std::fmt::{self, Debug, Formatter};
 use std::future::Future;
 use std::io;
 use std::net::SocketAddr;
@@ -51,20 +52,41 @@ where
     type Output = O;
 }
 
+pub(crate) trait Connect: HyperConnect + Clone + Debug + Send + Sync + 'static {}
+
+impl<C: HyperConnect + Clone + Debug + Send + Sync + 'static> Connect for C {}
+
 #[derive(Clone)]
-pub(crate) struct HttpsConnector<I>(I);
+pub(crate) struct HttpsConnector<I> {
+    inner: I,
+    debug: &'static str,
+}
 
 impl HttpsConnector<()> {
     #[cfg(feature = "rustls")]
-    pub(crate) fn new() -> Result<impl Connect + Clone + Send + Sync + 'static, HTTPSError> {
+    pub(crate) fn new() -> Result<impl Connect, HTTPSError> {
         let inner = rustls::connector(None)?;
-        Ok(HttpsConnector(inner))
+        Ok(HttpsConnector {
+            inner,
+            debug: "rustls",
+        })
     }
 
     #[cfg(all(feature = "openssl", not(feature = "rustls")))]
     pub(crate) fn new() -> Result<impl Connect + Clone + Send + Sync + 'static, HTTPSError> {
         let inner = openssl::connector(None)?;
-        Ok(HttpsConnector(inner))
+        Ok(HttpsConnector {
+            inner,
+            debug: "openssl",
+        })
+    }
+}
+
+impl<I> Debug for HttpsConnector<I> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        f.debug_struct("HttpsConnector")
+            .field("inner", &self.debug)
+            .finish()
     }
 }
 
@@ -83,7 +105,7 @@ where
     }
 
     fn call(&mut self, req: Uri) -> Self::Future {
-        let inner = self.0.clone();
+        let inner = self.inner.clone();
 
         Box::pin(inner(req))
     }

@@ -18,10 +18,11 @@ mod ring;
 #[cfg(feature = "rustls")]
 pub use self::ring::RingCrypto as CryptoImpl;
 
-pub trait Crypto: Debug + Sized {
+pub trait Crypto: Debug + Sized + Clone {
     type Signer: Sign<Crypto = Self>;
     type Signature: Serialize + 'static;
     type KeyPair: Serialize
+        + Debug
         + TryInto<Vec<u8>, Error = Self::Error>
         + TryFrom<Vec<u8>, Error = Self::Error>
         + 'static;

@@ -13,7 +13,6 @@ async fn main() {
     let dir = Directory::from_url::<MemoryPersist>(Directory::LE_STAGING, memory)
         .await
         .unwrap();
-    let account = dir.new_account(true).await.unwrap();
-    let account = dir.new_account(true).await.unwrap();
+    let account = dir.account(true, "test@test.ch".into()).await.unwrap();
     println!("{:?}", account);
 }

@@ -5,6 +5,7 @@ use std::error::Error;
 use std::fmt::Debug;
 use std::future::Future;
 use std::pin::Pin;
+use std::sync::Arc;
 use tokio::sync::Mutex;
 
 #[derive(Hash, PartialEq, Eq, Copy, Clone, Debug)]
@@ -15,7 +16,7 @@ pub enum DataType {
 // maybe must be send and sync
 type BoxFuture<'a, T, E> = Pin<Box<dyn Future<Output = Result<T, E>> + Send + 'a>>;
 
-pub trait Persist: Debug {
+pub trait Persist: Debug + Clone {
     type Error: Error + Send + 'static;
 
     fn get<'a, 'b: 'a>(
@@ -34,9 +35,9 @@ pub trait Persist: Debug {
 
 type Data = HashMap<DataHolder<'static>, Vec<u8>>;
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct MemoryPersist {
-    inner: Mutex<Data>,
+    inner: Arc<Mutex<Data>>,
 }
 
 impl MemoryPersist {

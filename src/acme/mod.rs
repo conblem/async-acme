@@ -8,15 +8,15 @@ use std::convert::{TryFrom, TryInto};
 use std::fmt::Debug;
 use std::io;
 use std::str;
+use std::sync::Arc;
 use thiserror::Error;
 
 use dto::{ApiAccount, ApiDirectory};
-use hyper::client::connect::Connect;
 use jws::{Crypto, CryptoImpl};
 use nonce::{NoncePool, NoncePoolError};
 pub(super) use persist::MemoryPersist;
 use persist::{DataType, Persist};
-use tls::{HTTPSError, HttpsConnector};
+use tls::{Connect, HTTPSError, HttpsConnector};
 
 mod dto;
 mod jws;
@@ -59,13 +59,18 @@ pub(super) enum DirectoryError<C: Crypto, P: Persist> {
 }
 
 #[derive(Debug)]
-pub(super) struct Directory<C, I, P> {
+pub(super) struct DirectoryInner<C, I, P> {
     directory: ApiDirectory,
     client: Client<I>,
     crypto: C,
     application_jose_json: HeaderValue,
     nonce_pool: NoncePool,
     persist: P,
+}
+
+#[derive(Debug, Clone)]
+pub(super) struct Directory<C, I, P> {
+    inner: Arc<DirectoryInner<C, I, P>>,
 }
 
 const APPLICATION_JOSE_JSON: &str = "application/jose+json";
@@ -75,10 +80,7 @@ impl Directory<(), (), ()> {
     pub(super) async fn from_url<P: Persist>(
         url: &str,
         persist: P,
-    ) -> Result<
-        Directory<CryptoImpl, impl Connect + Clone + Send + Sync + 'static, P>,
-        DirectoryError<CryptoImpl, P>,
-    > {
+    ) -> Result<Directory<CryptoImpl, impl Connect, P>, DirectoryError<CryptoImpl, P>> {
         let connector = HttpsConnector::new()?;
         let client = Client::builder().build(connector);
         let req = Request::get(url).body(Body::empty())?;
@@ -95,13 +97,17 @@ impl Directory<(), (), ()> {
             Err(err) => Err(DirectoryError::Crypto(err))?,
         };
 
-        Ok(Directory {
+        let inner = DirectoryInner {
             directory,
             client,
             crypto,
             nonce_pool,
             application_jose_json: HeaderValue::from_static(APPLICATION_JOSE_JSON),
             persist,
+        };
+
+        Ok(Directory {
+            inner: Arc::new(inner),
         })
     }
 
@@ -109,28 +115,40 @@ impl Directory<(), (), ()> {
         "https://acme-staging-v02.api.letsencrypt.org/directory";
 }
 
-impl<C: Crypto, I: Connect + Clone + Send + Sync + 'static, P: Persist> Directory<C, I, P> {
-    fn protect(&self, url: &str, keypair: &C::KeyPair) -> Result<String, DirectoryError<C, P>> {
-        let nonce = self.nonce_pool.get_nonce().await?;
+impl<C: Crypto, I: Connect, P: Persist> Directory<C, I, P> {
+    async fn protect(
+        &self,
+        keypair: &C::KeyPair,
+        url: &str,
+    ) -> Result<String, DirectoryError<C, P>> {
+        let inner = &self.inner;
+
+        let nonce = inner.nonce_pool.get_nonce().await?;
 
         let protected = Protected {
-            alg: self.crypto.algorithm(&keypair),
+            alg: inner.crypto.algorithm(&keypair),
             nonce,
-            url: &*self.directory.new_account,
+            url,
             jwk: &keypair,
         };
 
         let protected = serde_json::to_string(&protected)?;
-        Ok(base64::encode_config(protected, base64::URL_SAFE_NO_PAD)?)
+        Ok(base64::encode_config(protected, base64::URL_SAFE_NO_PAD))
     }
 
-    fn sign<P: Serialize>(&self, protected: String, payload: P) -> Result<SignedRequest<C::Signature>, DirectoryError<C, P>> {
-        let payload = serde_json::to_string(&payload)?;
-        let account = base64::encode_config(account_str, base64::URL_SAFE_NO_PAD);
+    fn sign<S: Serialize>(
+        &self,
+        keypair: &C::KeyPair,
+        protected: String,
+        payload: &S,
+    ) -> Result<SignedRequest<C::Signature>, DirectoryError<C, P>> {
+        let payload = serde_json::to_string(payload)?;
+        let payload = base64::encode_config(payload, base64::URL_SAFE_NO_PAD);
 
         let mut signer = self
+            .inner
             .crypto
-            .sign(&keypair, protected.len() + account_str.len() + 1);
+            .sign(&keypair, protected.len() + payload.len() + 1);
 
         signer.update(&protected);
         signer.update(b".");
@@ -147,14 +165,18 @@ impl<C: Crypto, I: Connect + Clone + Send + Sync + 'static, P: Persist> Director
         })
     }
 
+    pub(super) async fn account(
+        &self,
+        tos: bool,
+        mail: String,
+    ) -> Result<Account<C, I, P>, DirectoryError<C, P>> {
+        let inner = &self.inner;
+        let url = &*inner.directory.new_account;
 
-    pub(super) async fn new_account(&self, tos: bool) -> Result<ApiAccount, DirectoryError<C, P>> {
-        let url = &*self.directory.new_account;
-
-        let keypair = match self.persist.get(DataType::PrivateKey, "keypair").await {
+        let keypair = match inner.persist.get(DataType::PrivateKey, &*mail).await {
             Err(e) => Err(DirectoryError::Persist(e))?,
             Ok(Some(keypair)) => C::KeyPair::try_from(keypair),
-            Ok(None) => self.crypto.generate_key(),
+            Ok(None) => inner.crypto.generate_key(),
         };
 
         let mut keypair = match keypair {
@@ -162,14 +184,16 @@ impl<C: Crypto, I: Connect + Clone + Send + Sync + 'static, P: Persist> Director
             Ok(keypair) => keypair,
         };
 
-        let mut account = ApiAccount::new(vec![], tos);
+        let mut account = ApiAccount::new(vec![mail], tos);
+        let protected = self.protect(&keypair, url).await?;
+        let signed = self.sign(&keypair, protected, &account)?;
 
-        let body = serde_json::to_vec(&body)?.into();
-        let mut req = Request::post(&self.directory.new_account).body(body)?;
+        let body = serde_json::to_vec(&signed)?.into();
+        let mut req = Request::post(url).body(body)?;
         req.headers_mut()
-            .insert(CONTENT_TYPE, self.application_jose_json.clone());
+            .insert(CONTENT_TYPE, inner.application_jose_json.clone());
 
-        let mut res = self.client.request(req).await?;
+        let mut res = inner.client.request(req).await?;
 
         let kid = res
             .headers_mut()
@@ -177,39 +201,30 @@ impl<C: Crypto, I: Connect + Clone + Send + Sync + 'static, P: Persist> Director
             .map(Header)
             .ok_or_else(|| DirectoryError::NoKid)?;
 
-        self.crypto.set_kid(&mut keypair, kid);
-
-        let keypair = match keypair.try_into() {
-            Err(e) => Err(DirectoryError::Crypto(e))?,
-            Ok(keypair) => self.persist.put(DataType::PrivateKey, "keypair", keypair),
-        };
-
-        if let Err(e) = keypair.await {
-            Err(DirectoryError::Persist(e))?
-        }
+        inner.crypto.set_kid(&mut keypair, kid);
 
         let bytes = to_bytes(res.body_mut()).await.unwrap();
         let new_account: ApiAccount = serde_json::from_slice(bytes.as_ref())?;
 
         account.status = new_account.status;
-        Ok(account)
+
+        Ok(Account {
+            api_account: account,
+            directory: Directory::clone(&self),
+            keypair,
+        })
     }
+}
 
-    // wip
-    pub(super) async fn new_order(&self, tos: bool) -> Result<(), DirectoryError<C, P>> {
-        let keypair = match self.persist.get(DataType::PrivateKey, "keypair").await {
-            Err(e) => Err(DirectoryError::Persist(e))?,
-            Ok(Some(keypair)) => C::KeyPair::try_from(keypair),
-            Ok(None) => self.crypto.generate_key(),
-        };
+#[derive(Debug)]
+pub(super) struct Account<C: Crypto, I, P> {
+    directory: Directory<C, I, P>,
+    api_account: ApiAccount,
+    keypair: C::KeyPair,
+}
 
-        let mut keypair = match keypair {
-            Err(e) => Err(DirectoryError::Crypto(e))?,
-            Ok(keypair) => keypair,
-        };
-
-        let nonce = self.nonce_pool.get_nonce().await?;
-
+impl<C: Crypto, I: Connect, P: Persist> Account<C, I, P> {
+    async fn new_order(&self, url: &str, keypair: &C::KeyPair) -> Result<(), DirectoryError<C, P>> {
         Ok(())
     }
 }

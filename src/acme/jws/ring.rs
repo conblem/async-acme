@@ -4,8 +4,7 @@ use ring::signature::{EcdsaKeyPair, KeyPair, Signature, ECDSA_P384_SHA384_FIXED_
 use serde::ser::{Error as SerError, SerializeStruct};
 use serde::{Serialize, Serializer};
 use std::convert::{TryFrom, TryInto};
-use std::fmt;
-use std::fmt::{Display, Formatter};
+use std::fmt::{self, Debug, Display, Formatter};
 use std::str;
 use std::str::Utf8Error;
 use thiserror::Error;
@@ -15,7 +14,7 @@ use super::{Crypto, Header, Sign, Signer};
 const X_LEN: usize = 64;
 const Y_LEN: usize = 64;
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct RingCrypto {
     random: SystemRandom,
 }
@@ -62,6 +61,16 @@ pub struct RingKeyPair {
     x: [u8; X_LEN],
     y: [u8; Y_LEN],
     kid: Option<Header>,
+}
+
+impl Debug for RingKeyPair {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        f.debug_struct("RingKeyPair")
+            .field("x", &self.x)
+            .field("y", &self.y)
+            .field("kid", &self.kid)
+            .finish()
+    }
 }
 
 fn export_x_y(pair: &EcdsaKeyPair) -> Result<([u8; X_LEN], [u8; Y_LEN]), KeyPairError> {
