@@ -125,6 +125,7 @@ mod tests {
     use std::error::Error;
     use std::net::SocketAddr;
     use std::str;
+    use tracing_test::traced_test;
     use warp::Filter;
 
     use super::*;
@@ -146,7 +147,8 @@ mod tests {
         addr
     }
 
-    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    #[tokio::test]
+    #[traced_test]
     async fn run() -> Result<(), Box<dyn Error + Send + Sync + 'static>> {
         let addr = server();
         let ca = include_bytes!("ca.der");

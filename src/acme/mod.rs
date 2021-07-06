@@ -110,7 +110,47 @@ impl Directory<(), (), ()> {
 }
 
 impl<C: Crypto, I: Connect + Clone + Send + Sync + 'static, P: Persist> Directory<C, I, P> {
+    fn protect(&self, url: &str, keypair: &C::KeyPair) -> Result<String, DirectoryError<C, P>> {
+        let nonce = self.nonce_pool.get_nonce().await?;
+
+        let protected = Protected {
+            alg: self.crypto.algorithm(&keypair),
+            nonce,
+            url: &*self.directory.new_account,
+            jwk: &keypair,
+        };
+
+        let protected = serde_json::to_string(&protected)?;
+        Ok(base64::encode_config(protected, base64::URL_SAFE_NO_PAD)?)
+    }
+
+    fn sign<P: Serialize>(&self, protected: String, payload: P) -> Result<SignedRequest<C::Signature>, DirectoryError<C, P>> {
+        let payload = serde_json::to_string(&payload)?;
+        let account = base64::encode_config(account_str, base64::URL_SAFE_NO_PAD);
+
+        let mut signer = self
+            .crypto
+            .sign(&keypair, protected.len() + account_str.len() + 1);
+
+        signer.update(&protected);
+        signer.update(b".");
+        signer.update(&payload);
+        let signature = match signer.finish() {
+            Err(err) => return Err(DirectoryError::Crypto(err)),
+            Ok(signature) => signature,
+        };
+
+        Ok(SignedRequest {
+            protected,
+            payload,
+            signature,
+        })
+    }
+
+
     pub(super) async fn new_account(&self, tos: bool) -> Result<ApiAccount, DirectoryError<C, P>> {
+        let url = &*self.directory.new_account;
+
         let keypair = match self.persist.get(DataType::PrivateKey, "keypair").await {
             Err(e) => Err(DirectoryError::Persist(e))?,
             Ok(Some(keypair)) => C::KeyPair::try_from(keypair),
@@ -122,38 +162,7 @@ impl<C: Crypto, I: Connect + Clone + Send + Sync + 'static, P: Persist> Director
             Ok(keypair) => keypair,
         };
 
-        let nonce = self.nonce_pool.get_nonce().await?;
-
-        let protected = Protected {
-            alg: self.crypto.algorithm(&keypair),
-            nonce,
-            url: &*self.directory.new_account,
-            jwk: &keypair,
-        };
-        let protected = serde_json::to_string(&protected)?;
-        let protected = base64::encode_config(protected, base64::URL_SAFE_NO_PAD);
-
         let mut account = ApiAccount::new(vec![], tos);
-        let account_str = serde_json::to_string(&account)?;
-        let account_str = base64::encode_config(account_str, base64::URL_SAFE_NO_PAD);
-
-        let mut signer = self
-            .crypto
-            .sign(&keypair, protected.len() + account_str.len() + 1);
-
-        signer.update(&protected);
-        signer.update(b".");
-        signer.update(&account_str);
-        let signature = match signer.finish() {
-            Err(err) => return Err(DirectoryError::Crypto(err)),
-            Ok(signature) => signature,
-        };
-
-        let body = SignedRequest {
-            protected,
-            payload: account_str,
-            signature,
-        };
 
         let body = serde_json::to_vec(&body)?.into();
         let mut req = Request::post(&self.directory.new_account).body(body)?;
