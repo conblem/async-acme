@@ -59,15 +59,14 @@ pub(crate) enum ApiAccountStatus {
 }
 
 #[derive(Serialize, Deserialize, Debug, Default)]
-#[serde(rename_all = "camelCase")]
 pub(crate) struct ApiIndentifier {
     #[serde(rename = "type")]
-    pub(crate) type_field: &'static str,
-    pub(crate) value: String,
+    type_field: &'static str,
+    value: String,
 }
 
 #[derive(Serialize, Deserialize, Debug, Default)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "camelCase", bound(deserialize = "'de: 'static"))]
 pub(crate) struct ApiOrder {
     identifiers: Vec<ApiIndentifier>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -77,9 +76,8 @@ pub(crate) struct ApiOrder {
 }
 
 impl ApiOrder {
-    pub(crate) fn new(identifiers: Vec<String>) -> Self {
+    pub(crate) fn new<I: Iterator<Item = String>>(identifiers: I) -> Self {
         let identifiers = identifiers
-            .into_iter()
             .map(|identifier| ApiIndentifier {
                 type_field: "dns",
                 value: identifier,

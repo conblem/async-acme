@@ -11,12 +11,13 @@ use std::str;
 use std::sync::Arc;
 use thiserror::Error;
 
-use dto::{ApiAccount, ApiDirectory};
+use dto::{ApiAccount, ApiDirectory, ApiIndentifier};
 use jws::{Crypto, CryptoImpl};
 use nonce::{NoncePool, NoncePoolError};
 pub(super) use persist::MemoryPersist;
 use persist::{DataType, Persist};
 use tls::{Connect, HTTPSError, HttpsConnector};
+use crate::acme::dto::ApiOrder;
 
 mod dto;
 mod jws;
@@ -224,7 +225,25 @@ pub(super) struct Account<C: Crypto, I, P> {
 }
 
 impl<C: Crypto, I: Connect, P: Persist> Account<C, I, P> {
-    async fn new_order(&self, url: &str, keypair: &C::KeyPair) -> Result<(), DirectoryError<C, P>> {
+    async fn new_order(
+        &self,
+        primary_name: &str,
+        alt_names: &[&str],
+    ) -> Result<(), DirectoryError<C, P>> {
+        let directory = &self.directory;
+        let url = &directory.inner.directory.new_order;
+
+        let primary_arr = [primary_name];
+        let identifiers = primary_arr
+            .iter()
+            .chain(alt_names)
+            .map(|value| value.to_string())
+            .into_iter();
+
+        let protected = directory.protect(&self.keypair, url);
+        let order = ApiOrder::new(identifiers);
+        let signed = directory.sign(&self.ke)
+
         Ok(())
     }
 }
