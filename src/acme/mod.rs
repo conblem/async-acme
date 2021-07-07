@@ -4,7 +4,7 @@ use hyper::http;
 use hyper::{Body, Client, Request};
 use serde::ser::Error as SerError;
 use serde::{Serialize, Serializer};
-use std::convert::{TryFrom, TryInto};
+use std::convert::TryFrom;
 use std::fmt::Debug;
 use std::io;
 use std::str;
@@ -168,7 +168,7 @@ impl<C: Crypto, I: Connect, P: Persist> Directory<C, I, P> {
     pub(super) async fn account(
         &self,
         tos: bool,
-        mail: String,
+        mail: &str,
     ) -> Result<Account<C, I, P>, DirectoryError<C, P>> {
         let inner = &self.inner;
         let url = &*inner.directory.new_account;
@@ -184,8 +184,9 @@ impl<C: Crypto, I: Connect, P: Persist> Directory<C, I, P> {
             Ok(keypair) => keypair,
         };
 
-        let mut account = ApiAccount::new(vec![mail], tos);
         let protected = self.protect(&keypair, url).await?;
+        let mail = format!("mailto:{}", mail);
+        let mut account = ApiAccount::new(vec![mail], tos);
         let signed = self.sign(&keypair, protected, &account)?;
 
         let body = serde_json::to_vec(&signed)?.into();
@@ -194,6 +195,10 @@ impl<C: Crypto, I: Connect, P: Persist> Directory<C, I, P> {
             .insert(CONTENT_TYPE, inner.application_jose_json.clone());
 
         let mut res = inner.client.request(req).await?;
+        let bytes = to_bytes(res.body_mut()).await?;
+
+        let new_account: ApiAccount = serde_json::from_slice(bytes.as_ref())?;
+        account.status = new_account.status;
 
         let kid = res
             .headers_mut()
@@ -202,11 +207,6 @@ impl<C: Crypto, I: Connect, P: Persist> Directory<C, I, P> {
             .ok_or_else(|| DirectoryError::NoKid)?;
 
         inner.crypto.set_kid(&mut keypair, kid);
-
-        let bytes = to_bytes(res.body_mut()).await.unwrap();
-        let new_account: ApiAccount = serde_json::from_slice(bytes.as_ref())?;
-
-        account.status = new_account.status;
 
         Ok(Account {
             api_account: account,

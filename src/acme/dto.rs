@@ -57,3 +57,38 @@ pub(crate) enum ApiAccountStatus {
     Deactivated,
     Revoked,
 }
+
+#[derive(Serialize, Deserialize, Debug, Default)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct ApiIndentifier {
+    #[serde(rename = "type")]
+    pub(crate) type_field: &'static str,
+    pub(crate) value: String,
+}
+
+#[derive(Serialize, Deserialize, Debug, Default)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct ApiOrder {
+    identifiers: Vec<ApiIndentifier>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    not_before: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    not_after: Option<String>,
+}
+
+impl ApiOrder {
+    pub(crate) fn new(identifiers: Vec<String>) -> Self {
+        let identifiers = identifiers
+            .into_iter()
+            .map(|identifier| ApiIndentifier {
+                type_field: "dns",
+                value: identifier,
+            })
+            .collect();
+
+        ApiOrder {
+            identifiers,
+            ..Default::default()
+        }
+    }
+}
