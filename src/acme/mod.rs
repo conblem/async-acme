@@ -11,13 +11,13 @@ use std::str;
 use std::sync::Arc;
 use thiserror::Error;
 
+use crate::acme::dto::ApiOrder;
 use dto::{ApiAccount, ApiDirectory, ApiIndentifier};
 use jws::{Crypto, CryptoImpl};
 use nonce::{NoncePool, NoncePoolError};
 pub(super) use persist::MemoryPersist;
 use persist::{DataType, Persist};
 use tls::{Connect, HTTPSError, HttpsConnector};
-use crate::acme::dto::ApiOrder;
 
 mod dto;
 mod jws;
@@ -240,9 +240,9 @@ impl<C: Crypto, I: Connect, P: Persist> Account<C, I, P> {
             .map(|value| value.to_string())
             .into_iter();
 
-        let protected = directory.protect(&self.keypair, url);
+        let protected = directory.protect(&self.keypair, url).await?;
         let order = ApiOrder::new(identifiers);
-        let signed = directory.sign(&self.ke)
+        let signed = directory.sign(&self.keypair, protected, &order)?;
 
         Ok(())
     }

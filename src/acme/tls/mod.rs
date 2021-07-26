@@ -146,7 +146,7 @@ mod tests {
     use std::convert::TryInto;
     use std::error::Error;
     use std::net::SocketAddr;
-    use std::str;
+    use std::{any, str};
     use tracing_test::traced_test;
     use warp::Filter;
 
@@ -191,7 +191,10 @@ mod tests {
     where
         HttpsConnector<I>: Connect + Clone + Send + Sync + 'static,
     {
-        let connector = HttpsConnector(inner);
+        let connector = HttpsConnector {
+            inner,
+            debug: any::type_name::<I>(),
+        };
         let client = Client::builder().build::<_, Body>(connector);
 
         let mut res = client
