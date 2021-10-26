@@ -1,58 +1,6 @@
-[package]
-name = "async_acme"
-version = "0.1.0"
-authors = ["conblem <mail@conblem.me>"]
-edition = "2018"
+[workspace]
 
-[[bin]]
-name = "async_acme"
-required-features = ["build-binary"]
-
-[lib]
-name = "async_acme"
-
-[dependencies]
-hyper = { version = "0.14", default-features = false, features = ["client", "http1", "runtime"] }
-tokio = { version = "1.0", default-features = false, features = ["net", "tracing"] }
-serde = { version = "1", features = ["derive"] }
-serde_json = "1"
-tracing = "0.1"
-thiserror = "1"
-base64 = "0.13"
-bytes = "1"
-async-trait = "0.1"
-
-# rustls feature
-ring = { version = "0.16", optional = true, default-features = false, features = ["std"] }
-tokio-rustls = { version = "0.22", optional = true, default-features = false }
-webpki-roots = {version = "0.21", optional = true, default-features = false }
-webpki = { version = "0.21", optional = true }
-
-# openssl feature
-openssl = { version = "0.10", optional = true, default-features = false }
-tokio-openssl = { version = "0.6", optional = true, default-features = false }
-
-# happyeyeballs feature
-happyeyeballs = { version = "0.1", optional = true }
-
-# binary dep
-tracing-subscriber = { version = "0.2", optional = true }
-
-[dev-dependencies]
-tokio = { version = "1.0", default-features = false, features = ["rt", "macros"] }
-unwrap-infallible = "0.1.5"
-wiremock = "0.5"
-warp = { version = "0.3", default-features = false, features = ["tls"] }
-tracing-test = "0.1"
-
-[features]
-default = ["rustls"]
-
-# move to dedicated feature
-rustls = ["ring", "tokio-rustls", "webpki-roots", "webpki"]
-# stupid name fix this but cannot be same as dep
-open-ssl = ["ring", "tokio-openssl", "openssl"]
-
-happy-eyeballs = ["happyeyeballs"]
-
-build-binary = ["tokio/macros", "tokio/rt-multi-thread", "tracing-subscriber"]
+members = [
+    "acme_core",
+    "async_acme"
+]

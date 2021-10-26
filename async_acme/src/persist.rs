@@ -1,36 +1,23 @@
+use async_trait::async_trait;
+use parking_lot::Mutex;
 use std::borrow::Cow;
 use std::collections::HashMap;
 use std::convert::Infallible;
 use std::error::Error;
 use std::fmt::Debug;
-use std::future::Future;
-use std::pin::Pin;
 use std::sync::Arc;
-use tokio::sync::Mutex;
 
 #[derive(Hash, PartialEq, Eq, Copy, Clone, Debug)]
 pub enum DataType {
     PrivateKey,
 }
 
-// maybe must be send and sync
-type BoxFuture<'a, T, E> = Pin<Box<dyn Future<Output = Result<T, E>> + Send + 'a>>;
-
+#[async_trait]
 pub trait Persist: Debug + Clone {
-    type Error: Error + Send + 'static;
+    type Error: Error + Send + Sync + 'static;
 
-    fn get<'a, 'b: 'a>(
-        &'a self,
-        data_type: DataType,
-        key: &'b str,
-    ) -> BoxFuture<'a, Option<Vec<u8>>, Self::Error>;
-
-    fn put<'a, 'b: 'a>(
-        &'a self,
-        data_type: DataType,
-        key: &'b str,
-        value: Vec<u8>,
-    ) -> BoxFuture<'a, (), Self::Error>;
+    async fn get(&self, data_type: DataType, key: &str) -> Result<Option<Vec<u8>>, Self::Error>;
+    async fn put(&self, data_type: DataType, key: &str, value: Vec<u8>) -> Result<(), Self::Error>;
 }
 
 type Data = HashMap<DataHolder<'static>, Vec<u8>>;
@@ -61,44 +48,43 @@ impl<'a> DataHolder<'a> {
     }
 }
 
+#[async_trait]
 impl Persist for MemoryPersist {
     type Error = Infallible;
 
-    fn get<'a, 'b: 'a>(
-        &'a self,
-        data_type: DataType,
-        key: &'b str,
-    ) -> BoxFuture<'a, Option<Vec<u8>>, Self::Error> {
+    async fn get(&self, data_type: DataType, key: &str) -> Result<Option<Vec<u8>>, Self::Error> {
         let holder = DataHolder::convert(data_type, key);
+        let lock = self.inner.lock();
 
-        Box::pin(async move {
-            let lock = self.inner.lock().await;
-
-            Ok(lock.get(&holder).map(ToOwned::to_owned))
-        })
+        Ok(lock.get(&holder).map(ToOwned::to_owned))
     }
 
-    fn put<'a, 'b: 'a>(
-        &'a self,
-        data_type: DataType,
-        key: &'b str,
-        value: Vec<u8>,
-    ) -> BoxFuture<'a, (), Self::Error> {
-        Box::pin(async move {
-            let holder = DataHolder::convert(data_type, key.to_string());
+    async fn put(&self, data_type: DataType, key: &str, value: Vec<u8>) -> Result<(), Self::Error> {
+        let holder = DataHolder::convert(data_type, key.to_string());
 
-            let mut lock = self.inner.lock().await;
+        let mut lock = self.inner.lock();
 
-            lock.insert(holder, value);
-            Ok(())
-        })
+        lock.insert(holder, value);
+        Ok(())
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use unwrap_infallible::UnwrapInfallible;
+
+    trait UnwrapInfallible<T> {
+        fn unwrap_infallible(self) -> T;
+    }
+
+    impl<T> UnwrapInfallible<T> for Result<T, Infallible> {
+        fn unwrap_infallible(self) -> T {
+            match self {
+                Ok(res) => res,
+                Err(e) => match e {},
+            }
+        }
+    }
 
     #[tokio::test]
     async fn memory_persist() {
@@ -114,12 +100,13 @@ mod tests {
             .await
             .unwrap_infallible();
 
-        assert_eq!(Some(expected.to_vec()), actual);
+        let expected = Some(expected.to_vec());
+        assert_eq!(actual, expected);
 
         let actual = persist
             .get(DataType::PrivateKey, "empty")
             .await
             .unwrap_infallible();
-        assert_eq!(None, actual);
+        assert_eq!(actual, None);
     }
 }
