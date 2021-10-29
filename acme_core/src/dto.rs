@@ -11,14 +11,23 @@ const fn default_false() -> bool {
 
 #[derive(Serialize)]
 pub struct SignedRequest<P> {
-    protected: String,
-    payload: Payload<P>,
-    signature: String,
+    pub protected: String,
+    pub payload: Payload<P>,
+    pub signature: String,
 }
 
 pub struct Payload<P> {
     inner: String,
     phantom: PhantomData<P>,
+}
+
+impl<P> From<String> for Payload<P> {
+    fn from(inner: String) -> Self {
+        Self {
+            inner,
+            phantom: PhantomData,
+        }
+    }
 }
 
 impl<P> Serialize for Payload<P> {
@@ -149,16 +158,28 @@ impl<'de> Deserialize<'de> for Contact {
     }
 }
 
-#[derive(Clone, Serialize, Deserialize, Debug)]
+#[derive(Clone, Serialize, Deserialize, Debug, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct ApiAccount<E> {
-    pub status: ApiAccountStatus,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub status: Option<ApiAccountStatus>,
     pub contact: Vec<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub terms_of_service_agreed: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub external_account_binding: Option<E>,
-    pub orders: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub orders: Option<String>,
+}
+
+impl ApiAccount<()> {
+    pub fn new(mail: String, tos: bool) -> Self {
+        Self {
+            contact: vec![mail],
+            terms_of_service_agreed: Some(tos),
+            ..Default::default()
+        }
+    }
 }
 
 #[cfg(test)]

@@ -88,7 +88,7 @@ impl<C: Connect> AcmeServerBuilder for HyperAcmeServerBuilder<C> {
     }
 }
 
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 pub struct HyperAcmeServer<C> {
     replay_nonce_header: HeaderName,
     client: Client<C, Body>,
@@ -132,6 +132,10 @@ impl<C: Connect> AcmeServer for HyperAcmeServer<C> {
             Ok(nonce) => Ok(nonce.to_owned()),
             Err(_) => Err(HyperAcmeServerError::Nonce(Some(nonce))),
         }
+    }
+
+    fn directory(&self) -> &ApiDirectory {
+        &self.directory
     }
 
     async fn new_account(

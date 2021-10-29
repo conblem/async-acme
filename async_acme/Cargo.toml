@@ -9,14 +9,18 @@ edition = "2018"
 # figure out if we use parkin lot anyway so we can use it as dependency
 tokio = { version = "1", default-features = false, features = ["rt-multi-thread", "net", "parking_lot"]}
 async-trait = { version = "0.1" }
-hyper = { version = "0.14", default-features = false, features = ["client", "http1", "runtime"]}
+# figure out why http 2 is needed
+hyper = { version = "0.14", default-features = false, features = ["client", "http1", "http2", "runtime"]}
 # in the future this crates gets the http1 feature added keep an eye on this
 hyper-rustls = { version = "0.22", default-features = false, features = ["webpki-tokio"] }
 rustls = { version = "0.20" }
+ring = { version = "0.16"}
 serde_json = { version = "1" }
 acme_core = { path = "../acme_core" }
 thiserror = "1"
 parking_lot = "0.11"
+serde = "1"
+base64 = "0.13"
 
 [dev-dependencies]
 tokio = { version = "1", default-features = false, features = ["macros"]}
