@@ -1,14 +1,14 @@
 use ring::error::{KeyRejected, Unspecified};
 use ring::pkcs8::Document;
 use ring::rand::SystemRandom;
-use ring::signature::{EcdsaKeyPair, ECDSA_P384_SHA384_FIXED_SIGNING, Signature};
-use serde::ser::{SerializeStruct};
+use ring::signature::{EcdsaKeyPair, Signature, ECDSA_P384_SHA384_FIXED_SIGNING};
+use serde::ser;
+use serde::ser::SerializeStruct;
 use serde::{Serialize, Serializer};
 use std::error::Error;
+use std::fmt::{Debug, Display, Formatter};
 use std::str;
 use thiserror::Error;
-use serde::ser;
-use std::fmt::{Display, Formatter};
 
 pub trait Crypto: Sized {
     type Error: Error + 'static;
@@ -41,7 +41,7 @@ pub trait Signer {
 #[derive(Debug)]
 pub enum XY {
     X,
-    Y
+    Y,
 }
 
 impl Display for XY {
@@ -80,6 +80,7 @@ impl From<KeyRejected> for RingCryptoError {
     }
 }
 
+#[derive(Debug, Clone)]
 pub struct RingCrypto {
     random: SystemRandom,
 }
@@ -87,12 +88,12 @@ pub struct RingCrypto {
 impl RingCrypto {
     pub fn new() -> Self {
         Self {
-            random: SystemRandom::new()
+            random: SystemRandom::new(),
         }
     }
 }
 
-impl <'a> Crypto for &'a RingCrypto {
+impl<'a> Crypto for &'a RingCrypto {
     type Error = RingCryptoError;
     type KeyPair = RingKeyPair;
     type Signer = RingSigner<'a>;
@@ -101,7 +102,7 @@ impl <'a> Crypto for &'a RingCrypto {
         let size_hint = size_hint.into().unwrap_or_default();
         RingSigner {
             inner: Vec::with_capacity(size_hint),
-            random: &self.random
+            random: &self.random,
         }
     }
 
@@ -110,13 +111,11 @@ impl <'a> Crypto for &'a RingCrypto {
             EcdsaKeyPair::generate_pkcs8(&ECDSA_P384_SHA384_FIXED_SIGNING, &self.random)?;
         let inner = EcdsaKeyPair::from_pkcs8(&ECDSA_P384_SHA384_FIXED_SIGNING, document.as_ref())?;
         let public_key = RingKeyPair::export_public_key(&inner)?;
-        let random = self.random.clone();
 
         Ok(RingKeyPair {
             _document: document,
             inner,
             public_key,
-            random
         })
     }
 }
@@ -125,7 +124,14 @@ pub struct RingKeyPair {
     _document: Document,
     inner: EcdsaKeyPair,
     public_key: RingPublicKey,
-    random: SystemRandom,
+}
+
+impl Debug for RingKeyPair {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("RingKeyPair")
+            .field("public_key", &self.public_key)
+            .finish()
+    }
 }
 
 impl RingKeyPair {
@@ -178,6 +184,7 @@ impl KeyPair for RingKeyPair {
     }
 }
 
+#[derive(Debug)]
 pub struct RingPublicKey {
     x: [u8; 64],
     y: [u8; 64],
@@ -205,10 +212,10 @@ impl Serialize for RingPublicKey {
 
 pub struct RingSigner<'a> {
     random: &'a SystemRandom,
-    inner: Vec<u8>
+    inner: Vec<u8>,
 }
 
-impl <'a> Signer for RingSigner<'a> {
+impl<'a> Signer for RingSigner<'a> {
     type Error = RingCryptoError;
     type KeyPair = RingKeyPair;
     type Signature = Signature;

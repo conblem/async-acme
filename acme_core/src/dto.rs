@@ -182,6 +182,53 @@ impl ApiAccount<()> {
     }
 }
 
+#[derive(Clone, Serialize, Deserialize, Debug)]
+#[serde(rename_all = "camelCase")]
+pub enum ApiOrderStatus {
+    Pending,
+    Ready,
+    Processing,
+    Valid,
+    Invalid,
+}
+
+#[derive(Clone, Serialize, Deserialize, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct ApiIdentifier {
+    #[serde(rename = "type")]
+    pub type_field: String,
+    pub value: String,
+}
+
+#[derive(Clone, Serialize, Deserialize, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct ApiNewOrder {
+    pub identifiers: Vec<ApiIdentifier>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub notBefore: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub notAfter: Option<String>,
+}
+
+#[derive(Clone, Serialize, Deserialize, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct ApiOrder<E> {
+    status: ApiOrderStatus,
+    // todo: make this a real timestamp
+    #[serde(skip_serializing_if = "Option::is_none")]
+    expires: Option<String>,
+    identifiers: Vec<ApiIdentifier>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    notBefore: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    notAfter: Option<String>,
+    error: Option<E>,
+    authorizations: Vec<String>,
+    finalize: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    certificate: Option<String>,
+}
+
 #[cfg(test)]
 mod tests {
     use serde_test::{assert_tokens, Token};

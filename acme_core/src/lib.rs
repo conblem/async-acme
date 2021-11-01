@@ -38,5 +38,8 @@ pub trait AcmeServer: Send + Sync {
         req: SignedRequest<ApiAccount<()>>,
     ) -> Result<ApiAccount<()>, Self::Error>;
 
+    async fn new_order(&self, req: SignedRequest<ApiNewOrder>)
+        -> Result<ApiOrder<()>, Self::Error>;
+
     async fn finalize(&self) -> Result<(), Self::Error>;
 }

@@ -1,4 +1,6 @@
-use acme_core::{AcmeServer, AcmeServerBuilder, ApiAccount, ApiDirectory, SignedRequest};
+use acme_core::{
+    AcmeServer, AcmeServerBuilder, ApiAccount, ApiDirectory, ApiNewOrder, ApiOrder, SignedRequest,
+};
 use async_trait::async_trait;
 use hyper::body;
 use hyper::client::connect::Connect as HyperConnect;
@@ -153,6 +155,23 @@ impl<C: Connect> AcmeServer for HyperAcmeServer<C> {
         let account = serde_json::from_slice(body.as_ref())?;
 
         Ok(account)
+    }
+
+    async fn new_order(
+        &self,
+        req: SignedRequest<ApiNewOrder>,
+    ) -> Result<ApiOrder<()>, Self::Error> {
+        let body = serde_json::to_vec(&req)?;
+
+        let mut req = Request::post(&self.directory.new_order).body(Body::from(body))?;
+        req.headers_mut()
+            .append(CONTENT_TYPE, APPLICATION_JOSE_JSON);
+
+        let mut res = self.client.request(req).await?;
+        let body = body::to_bytes(res.body_mut()).await?;
+        let order = serde_json::from_slice(body.as_ref())?;
+
+        Ok(order)
     }
 
     async fn finalize(&self) -> Result<(), Self::Error> {

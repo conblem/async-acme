@@ -1,11 +1,18 @@
-use acme_core::{AcmeServer, AcmeServerBuilder, AmceServerExt, Uri, ApiAccount, SignedRequest, Payload};
+use acme_core::{
+    AcmeServer, AcmeServerBuilder, AmceServerExt, ApiAccount, ApiIdentifier, ApiNewOrder, ApiOrder,
+    Payload, SignedRequest, Uri,
+};
 use hyper::client::HttpConnector;
-use thiserror::Error;
-use serde::{Serialize, Serializer};
 use serde::ser::SerializeStruct;
+use serde::{Serialize, Serializer};
+use thiserror::Error;
 
-use crate::crypto::{Crypto, RingCrypto, RingCryptoError, RingKeyPair, KeyPair, RingPublicKey, Signer};
+use crate::crypto::{
+    Crypto, KeyPair, RingCrypto, RingCryptoError, RingKeyPair, RingPublicKey, Signer,
+};
 use crate::{HyperAcmeServer, HyperAcmeServerBuilder, HyperAcmeServerError};
+use std::borrow::Cow;
+use std::ops::Deref;
 
 type HttpsConnector = hyper_rustls::HttpsConnector<HttpConnector>;
 
@@ -19,6 +26,7 @@ pub enum DirectoryError {
     JsonError(#[from] serde_json::Error),
 }
 
+#[derive(Debug, Clone)]
 pub struct Directory {
     server: HyperAcmeServer<HttpsConnector>,
     crypto: RingCrypto,
@@ -62,7 +70,7 @@ impl Directory {
         Self::finish(builder).await
     }
 
-    pub async fn new_account<T: AsRef<str>>(&self, mail: T) -> Result<Account, DirectoryError> {
+    pub async fn new_account<T: AsRef<str>>(&self, mail: T) -> Result<Account<'_>, DirectoryError> {
         let key_pair = self.crypto.private_key()?;
         let uri = &self.server.directory().new_account;
         let protected = self.protect(uri, &key_pair).await?;
@@ -73,9 +81,11 @@ impl Directory {
 
         let account = self.server.new_account(signed).await?;
 
-        let server = self.server.clone();
-
-        Ok(Account { server, inner: account })
+        Ok(Account {
+            directory: Cow::Borrowed(&self),
+            inner: account,
+            key_pair,
+        })
     }
 }
 
@@ -89,14 +99,19 @@ impl Directory {
             nonce,
             alg,
             url,
-            jwk: AccountKey::JWK(public_key)
+            jwk: AccountKey::JWK(public_key),
         };
 
         let protected = serde_json::to_vec(&protected)?;
         Ok(base64::encode_config(protected, base64::URL_SAFE_NO_PAD))
     }
 
-    fn sign<T: Serialize>(&self, key_pair: &RingKeyPair, protected: String, payload: &T) -> Result<SignedRequest<T>, DirectoryError> {
+    fn sign<T: Serialize>(
+        &self,
+        key_pair: &RingKeyPair,
+        protected: String,
+        payload: &T,
+    ) -> Result<SignedRequest<T>, DirectoryError> {
         let payload = serde_json::to_vec(payload)?;
         let payload = base64::encode_config(payload, base64::URL_SAFE_NO_PAD);
 
@@ -118,9 +133,59 @@ impl Directory {
 }
 
 #[derive(Debug)]
-pub struct Account {
-    server: HyperAcmeServer<HttpsConnector>,
-    inner: ApiAccount<()>
+pub struct Account<'a> {
+    directory: Cow<'a, Directory>,
+    inner: ApiAccount<()>,
+    key_pair: RingKeyPair,
+}
+
+impl<'a> Account<'a> {
+    pub fn into_owned(self) -> Account<'static> {
+        let server = self.directory.into_owned();
+        Account {
+            directory: Cow::Owned(server),
+            inner: self.inner,
+            key_pair: self.key_pair,
+        }
+    }
+
+    pub async fn new_order<T: AsRef<str>>(&self, domain: T) -> Result<Order<'_>, DirectoryError> {
+        let identifier = ApiIdentifier {
+            type_field: "dns".to_string(),
+            value: domain.as_ref().to_string(),
+        };
+        let new_order = ApiNewOrder {
+            identifiers: vec![identifier],
+            notAfter: None,
+            notBefore: None,
+        };
+
+        let uri = &self.directory.server.directory().new_order;
+        let protected = self.directory.protect(uri, &self.key_pair).await?;
+
+        let signed = self.directory.sign(&self.key_pair, protected, &new_order)?;
+
+        let order = self.directory.server.new_order(signed).await?;
+        Ok(Order {
+            directory: Cow::Borrowed(self.directory.deref()),
+            inner: order,
+        })
+    }
+}
+
+pub struct Order<'a> {
+    directory: Cow<'a, Directory>,
+    inner: ApiOrder<()>,
+}
+
+impl<'a> Order<'a> {
+    fn into_owned(self) -> Order<'static> {
+        let server = self.directory.into_owned();
+        Order {
+            directory: Cow::Owned(server),
+            inner: self.inner,
+        }
+    }
 }
 
 struct Protected<'a> {
