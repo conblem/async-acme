@@ -1,16 +1,24 @@
 use acme_core::{
-    AcmeServer, AcmeServerBuilder, ApiAccount, ApiDirectory, ApiNewOrder, ApiOrder, SignedRequest,
+    AcmeServer, AcmeServerBuilder, ApiAccount, ApiDirectory, ApiError, ApiIdentifier, ApiNewOrder,
+    ApiOrder, ApiOrderStatus, SignedRequest, Uri,
 };
 use async_trait::async_trait;
-use hyper::body;
+use hyper::body::Bytes;
 use hyper::client::connect::Connect as HyperConnect;
 use hyper::http::header::{HeaderName, CONTENT_TYPE};
 use hyper::http::HeaderValue;
+use hyper::{body, Response};
 use hyper::{Body, Client, Request};
-use std::fmt::Debug;
+use serde::de::{self, DeserializeSeed, EnumAccess, Error, MapAccess, SeqAccess, Visitor};
+use serde::{Deserialize, Deserializer, Serialize};
+use std::convert::TryFrom;
+use std::fmt::{Debug, Formatter};
+use std::marker::PhantomData;
+use std::str;
 use thiserror::Error;
 
-const REPLAY_NONCE_HEADER: &str = "replay-nonce";
+const REPLAY_NONCE_HEADER: &str = "Replay-Nonce";
+const LOCATION_HEADER: &str = "Location";
 
 pub trait Connect: HyperConnect + Clone + Debug + Send + Sync + 'static {}
 impl<C: HyperConnect + Clone + Debug + Send + Sync + 'static> Connect for C {}
@@ -45,6 +53,10 @@ pub enum HyperAcmeServerError {
     Http(#[from] hyper::http::Error),
     #[error(transparent)]
     Json(#[from] serde_json::Error),
+    #[error("API returned error {0:?}")]
+    ApiError(ApiError),
+    #[error("API returned header {0} as {1:?}")]
+    InvalidHeader(&'static str, Option<HeaderValue>),
 }
 
 pub struct HyperAcmeServerBuilder<C> {
@@ -67,6 +79,7 @@ impl<C: Connect> AcmeServerBuilder for HyperAcmeServerBuilder<C> {
 
     async fn build(&mut self) -> Result<Self::Server, <Self::Server as AcmeServer>::Error> {
         let replay_nonce_header = HeaderName::from_static(REPLAY_NONCE_HEADER);
+        let location_header = HeaderName::from_static(LOCATION_HEADER);
 
         let connector = self
             .connector
@@ -82,6 +95,7 @@ impl<C: Connect> AcmeServerBuilder for HyperAcmeServerBuilder<C> {
 
         let acme_server = HyperAcmeServer {
             replay_nonce_header,
+            location_header,
             client,
             directory,
         };
@@ -93,6 +107,7 @@ impl<C: Connect> AcmeServerBuilder for HyperAcmeServerBuilder<C> {
 #[derive(Debug, Clone)]
 pub struct HyperAcmeServer<C> {
     replay_nonce_header: HeaderName,
+    location_header: HeaderName,
     client: Client<C, Body>,
     directory: ApiDirectory,
 }
@@ -116,6 +131,48 @@ impl<C> HyperAcmeServerBuilder<C> {
 
 const APPLICATION_JOSE_JSON: HeaderValue = HeaderValue::from_static("application/jose+json");
 
+impl<C: Connect> HyperAcmeServer<C> {
+    fn handle_if_error(
+        &self,
+        res: &Response<Body>,
+        body: &Bytes,
+    ) -> Result<(), HyperAcmeServerError> {
+        if res.status().is_success() {
+            return Ok(());
+        }
+        let error: ApiError = serde_json::from_slice(body.as_ref())?;
+        Err(HyperAcmeServerError::ApiError(error))
+    }
+
+    async fn post<T: Serialize, R>(
+        &self,
+        body: T,
+        uri: &Uri,
+    ) -> Result<(R, String), HyperAcmeServerError>
+    where
+        R: for<'a> Deserialize<'a>,
+    {
+        let body = serde_json::to_vec(&body)?;
+
+        let mut req = Request::post(uri).body(Body::from(body))?;
+        req.headers_mut()
+            .append(CONTENT_TYPE, APPLICATION_JOSE_JSON);
+
+        let mut res = self.client.request(req).await?;
+        let body = body::to_bytes(res.body_mut()).await?;
+        self.handle_if_error(&res, &body)?;
+
+        let location = res
+            .headers_mut()
+            .remove(&self.location_header)
+            .ok_or_else(|| HyperAcmeServerError::LocationNotReturned)?
+            .to_str()
+
+        let res = serde_json::from_slice(body.as_ref())?;
+        Ok(res)
+    }
+}
+
 #[async_trait]
 impl<C: Connect> AcmeServer for HyperAcmeServer<C> {
     type Error = HyperAcmeServerError;
@@ -124,6 +181,8 @@ impl<C: Connect> AcmeServer for HyperAcmeServer<C> {
     async fn new_nonce(&self) -> Result<String, Self::Error> {
         let req = Request::head(&self.directory.new_nonce).body(Body::empty())?;
         let mut res = self.client.request(req).await?;
+        let body = body::to_bytes(res.body_mut()).await?;
+        self.handle_if_error(&res, &body)?;
 
         let nonce = res
             .headers_mut()
@@ -143,17 +202,8 @@ impl<C: Connect> AcmeServer for HyperAcmeServer<C> {
     async fn new_account(
         &self,
         req: SignedRequest<ApiAccount<()>>,
-    ) -> Result<ApiAccount<()>, Self::Error> {
-        let body = serde_json::to_vec(&req)?;
-
-        let mut req = Request::post(&self.directory.new_account).body(Body::from(body))?;
-        req.headers_mut()
-            .append(CONTENT_TYPE, APPLICATION_JOSE_JSON);
-
-        let mut res = self.client.request(req).await?;
-        let body = body::to_bytes(res.body_mut()).await?;
-        let account = serde_json::from_slice(body.as_ref())?;
-
+    ) -> Result<(ApiAccount<()>, String), Self::Error> {
+        let account = self.post(req, &self.directory.new_account).await?;
         Ok(account)
     }
 
@@ -161,16 +211,7 @@ impl<C: Connect> AcmeServer for HyperAcmeServer<C> {
         &self,
         req: SignedRequest<ApiNewOrder>,
     ) -> Result<ApiOrder<()>, Self::Error> {
-        let body = serde_json::to_vec(&req)?;
-
-        let mut req = Request::post(&self.directory.new_order).body(Body::from(body))?;
-        req.headers_mut()
-            .append(CONTENT_TYPE, APPLICATION_JOSE_JSON);
-
-        let mut res = self.client.request(req).await?;
-        let body = body::to_bytes(res.body_mut()).await?;
-        let order = serde_json::from_slice(body.as_ref())?;
-
+        let order = self.post(req, &self.directory.new_order).await?;
         Ok(order)
     }
 

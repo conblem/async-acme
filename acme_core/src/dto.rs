@@ -213,20 +213,28 @@ pub struct ApiNewOrder {
 #[derive(Clone, Serialize, Deserialize, Debug)]
 #[serde(rename_all = "camelCase")]
 pub struct ApiOrder<E> {
-    status: ApiOrderStatus,
+    pub status: ApiOrderStatus,
     // todo: make this a real timestamp
     #[serde(skip_serializing_if = "Option::is_none")]
-    expires: Option<String>,
-    identifiers: Vec<ApiIdentifier>,
+    pub expires: Option<String>,
+    pub identifiers: Vec<ApiIdentifier>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    notBefore: Option<String>,
+    pub not_before: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    notAfter: Option<String>,
-    error: Option<E>,
-    authorizations: Vec<String>,
-    finalize: String,
+    pub not_after: Option<String>,
+    pub error: Option<E>,
+    pub authorizations: Vec<String>,
+    pub finalize: String,
     #[serde(skip_serializing_if = "Option::is_none")]
-    certificate: Option<String>,
+    pub certificate: Option<String>,
+}
+
+#[derive(Clone, Serialize, Deserialize, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct ApiError {
+    #[serde(rename = "type")]
+    pub type_val: String,
+    pub detail: String,
 }
 
 #[cfg(test)]

@@ -173,6 +173,7 @@ impl<'a> Account<'a> {
     }
 }
 
+#[derive(Debug)]
 pub struct Order<'a> {
     directory: Cow<'a, Directory>,
     inner: ApiOrder<()>,
@@ -233,7 +234,8 @@ mod tests {
     async fn test() -> Result<(), DirectoryError> {
         let directory = Directory::from_le_staging().await?;
         let account = directory.new_account("test@test.com").await?;
-        panic!("{:?}", account);
+        let order = account.new_order("example.com").await?;
+        panic!("{:?}", order);
 
         Ok(())
     }
