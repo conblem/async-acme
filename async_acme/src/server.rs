@@ -1,6 +1,6 @@
 use acme_core::{
-    AcmeServer, AcmeServerBuilder, ApiAccount, ApiDirectory, ApiError, ApiIdentifier, ApiNewOrder,
-    ApiOrder, ApiOrderStatus, SignedRequest, Uri,
+    AcmeServer, AcmeServerBuilder, ApiAccount, ApiDirectory, ApiError, ApiNewOrder, ApiOrder,
+    SignedRequest, Uri,
 };
 use async_trait::async_trait;
 use hyper::body::Bytes;
@@ -9,16 +9,13 @@ use hyper::http::header::{HeaderName, CONTENT_TYPE};
 use hyper::http::HeaderValue;
 use hyper::{body, Response};
 use hyper::{Body, Client, Request};
-use serde::de::{self, DeserializeSeed, EnumAccess, Error, MapAccess, SeqAccess, Visitor};
-use serde::{Deserialize, Deserializer, Serialize};
-use std::convert::TryFrom;
-use std::fmt::{Debug, Formatter};
-use std::marker::PhantomData;
+use serde::{Deserialize, Serialize};
+use std::fmt::Debug;
 use std::str;
 use thiserror::Error;
 
-const REPLAY_NONCE_HEADER: &str = "Replay-Nonce";
-const LOCATION_HEADER: &str = "Location";
+const REPLAY_NONCE_HEADER: &str = "replay-nonce";
+const LOCATION_HEADER: &str = "location";
 
 pub trait Connect: HyperConnect + Clone + Debug + Send + Sync + 'static {}
 impl<C: HyperConnect + Clone + Debug + Send + Sync + 'static> Connect for C {}
@@ -55,7 +52,7 @@ pub enum HyperAcmeServerError {
     Json(#[from] serde_json::Error),
     #[error("API returned error {0:?}")]
     ApiError(ApiError),
-    #[error("API returned header {0} as {1:?}")]
+    #[error("Invalid header {0} is {1:?}")]
     InvalidHeader(&'static str, Option<HeaderValue>),
 }
 
@@ -162,14 +159,15 @@ impl<C: Connect> HyperAcmeServer<C> {
         let body = body::to_bytes(res.body_mut()).await?;
         self.handle_if_error(&res, &body)?;
 
-        let location = res
-            .headers_mut()
-            .remove(&self.location_header)
-            .ok_or_else(|| HyperAcmeServerError::LocationNotReturned)?
-            .to_str()
+        let location = res.headers_mut().remove(&self.location_header);
+
+        let location = location
+            .as_ref()
+            .and_then(|location| location.to_str().ok().map(ToOwned::to_owned))
+            .ok_or_else(|| HyperAcmeServerError::InvalidHeader(LOCATION_HEADER, location))?;
 
         let res = serde_json::from_slice(body.as_ref())?;
-        Ok(res)
+        Ok((res, location.to_string()))
     }
 }
 
@@ -203,15 +201,15 @@ impl<C: Connect> AcmeServer for HyperAcmeServer<C> {
         &self,
         req: SignedRequest<ApiAccount<()>>,
     ) -> Result<(ApiAccount<()>, String), Self::Error> {
-        let account = self.post(req, &self.directory.new_account).await?;
-        Ok(account)
+        let (account, kid) = self.post(req, &self.directory.new_account).await?;
+        Ok((account, kid))
     }
 
     async fn new_order(
         &self,
         req: SignedRequest<ApiNewOrder>,
     ) -> Result<ApiOrder<()>, Self::Error> {
-        let order = self.post(req, &self.directory.new_order).await?;
+        let (order, _location) = self.post(req, &self.directory.new_order).await?;
         Ok(order)
     }
 

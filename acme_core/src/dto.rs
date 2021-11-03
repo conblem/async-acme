@@ -205,9 +205,9 @@ pub struct ApiIdentifier {
 pub struct ApiNewOrder {
     pub identifiers: Vec<ApiIdentifier>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub notBefore: Option<String>,
+    pub not_before: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub notAfter: Option<String>,
+    pub not_after: Option<String>,
 }
 
 #[derive(Clone, Serialize, Deserialize, Debug)]

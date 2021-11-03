@@ -27,6 +27,8 @@ pub trait KeyPair {
     fn algorithm(&self) -> &'static str;
 
     fn public_key(&self) -> &Self::PublicKey;
+    fn set_kid(&mut self, kid: String);
+    fn get_kid(&self) -> Option<&str>;
 }
 
 pub trait Signer {
@@ -116,6 +118,7 @@ impl<'a> Crypto for &'a RingCrypto {
             _document: document,
             inner,
             public_key,
+            kid: None,
         })
     }
 }
@@ -124,6 +127,7 @@ pub struct RingKeyPair {
     _document: Document,
     inner: EcdsaKeyPair,
     public_key: RingPublicKey,
+    kid: Option<String>,
 }
 
 impl Debug for RingKeyPair {
@@ -181,6 +185,14 @@ impl KeyPair for RingKeyPair {
 
     fn public_key(&self) -> &Self::PublicKey {
         &self.public_key
+    }
+
+    fn set_kid(&mut self, kid: String) {
+        self.kid = Some(kid);
+    }
+
+    fn get_kid(&self) -> Option<&str> {
+        self.kid.as_deref()
     }
 }
 

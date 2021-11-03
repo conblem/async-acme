@@ -36,7 +36,7 @@ pub trait AcmeServer: Send + Sync {
     async fn new_account(
         &self,
         req: SignedRequest<ApiAccount<()>>,
-    ) -> Result<(String, ApiAccount<()>), Self::Error>;
+    ) -> Result<(ApiAccount<()>, String), Self::Error>;
 
     async fn new_order(&self, req: SignedRequest<ApiNewOrder>)
         -> Result<ApiOrder<()>, Self::Error>;

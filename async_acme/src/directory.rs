@@ -71,7 +71,7 @@ impl Directory {
     }
 
     pub async fn new_account<T: AsRef<str>>(&self, mail: T) -> Result<Account<'_>, DirectoryError> {
-        let key_pair = self.crypto.private_key()?;
+        let mut key_pair = self.crypto.private_key()?;
         let uri = &self.server.directory().new_account;
         let protected = self.protect(uri, &key_pair).await?;
 
@@ -79,7 +79,8 @@ impl Directory {
         let account = ApiAccount::new(mail, true);
         let signed = self.sign(&key_pair, protected, &account)?;
 
-        let account = self.server.new_account(signed).await?;
+        let (account, kid) = self.server.new_account(signed).await?;
+        key_pair.set_kid(kid);
 
         Ok(Account {
             directory: Cow::Borrowed(&self),
@@ -93,13 +94,16 @@ impl Directory {
     async fn protect(&self, url: &Uri, key_pair: &RingKeyPair) -> Result<String, DirectoryError> {
         let alg = key_pair.algorithm();
         let nonce = self.server.new_nonce().await?;
-        let public_key = key_pair.public_key();
+        let jwk = match key_pair.get_kid() {
+            Some(kid) => AccountKey::KID(kid),
+            None => AccountKey::JWK(key_pair.public_key())
+        };
 
         let protected = Protected {
             nonce,
             alg,
             url,
-            jwk: AccountKey::JWK(public_key),
+            jwk,
         };
 
         let protected = serde_json::to_vec(&protected)?;
@@ -156,8 +160,8 @@ impl<'a> Account<'a> {
         };
         let new_order = ApiNewOrder {
             identifiers: vec![identifier],
-            notAfter: None,
-            notBefore: None,
+            not_after: None,
+            not_before: None,
         };
 
         let uri = &self.directory.server.directory().new_order;
@@ -214,7 +218,7 @@ impl Serialize for Protected<'_> {
 
 enum AccountKey<'a> {
     JWK(&'a RingPublicKey),
-    KID(String),
+    KID(&'a str),
 }
 
 impl Serialize for AccountKey<'_> {
@@ -235,8 +239,6 @@ mod tests {
         let directory = Directory::from_le_staging().await?;
         let account = directory.new_account("test@test.com").await?;
         let order = account.new_order("example.com").await?;
-        panic!("{:?}", order);
-
-        Ok(())
+        panic!("{:?}", order)
     }
 }
