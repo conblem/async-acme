@@ -48,11 +48,10 @@ pub enum XY {
 
 impl Display for XY {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        let str = match self {
-            XY::X => "X",
-            XY::Y => "Y",
-        };
-        write!(f, "{}", str)
+        match self {
+            XY::X => write!(f, "X"),
+            XY::Y => write!(f, "Y"),
+        }
     }
 }
 

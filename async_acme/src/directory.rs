@@ -53,44 +53,6 @@ impl Directory {
 }
 
 impl Directory {
-    pub async fn from_le_staging() -> Result<Self, DirectoryError> {
-        let mut builder = Self::base_builder();
-        builder.le_staging();
-        Self::finish(builder).await
-    }
-
-    pub async fn from_le() -> Result<Self, DirectoryError> {
-        let builder = Self::base_builder();
-        Self::finish(builder).await
-    }
-
-    pub async fn from_url(url: String) -> Result<Self, DirectoryError> {
-        let mut builder = Self::base_builder();
-        builder.url(url);
-        Self::finish(builder).await
-    }
-
-    pub async fn new_account<T: AsRef<str>>(&self, mail: T) -> Result<Account<'_>, DirectoryError> {
-        let mut key_pair = self.crypto.private_key()?;
-        let uri = &self.server.directory().new_account;
-        let protected = self.protect(uri, &key_pair).await?;
-
-        let mail = format!("mailto:{}", mail.as_ref());
-        let account = ApiAccount::new(mail, true);
-        let signed = self.sign(&key_pair, protected, &account)?;
-
-        let (account, kid) = self.server.new_account(signed).await?;
-        key_pair.set_kid(kid);
-
-        Ok(Account {
-            directory: Cow::Borrowed(&self),
-            inner: account,
-            key_pair,
-        })
-    }
-}
-
-impl Directory {
     async fn protect(&self, url: &Uri, key_pair: &RingKeyPair) -> Result<String, DirectoryError> {
         let alg = key_pair.algorithm();
         let nonce = self.server.new_nonce().await?;
@@ -136,6 +98,44 @@ impl Directory {
     }
 }
 
+impl Directory {
+    pub async fn from_le_staging() -> Result<Self, DirectoryError> {
+        let mut builder = Self::base_builder();
+        builder.le_staging();
+        Self::finish(builder).await
+    }
+
+    pub async fn from_le() -> Result<Self, DirectoryError> {
+        let builder = Self::base_builder();
+        Self::finish(builder).await
+    }
+
+    pub async fn from_url(url: String) -> Result<Self, DirectoryError> {
+        let mut builder = Self::base_builder();
+        builder.url(url);
+        Self::finish(builder).await
+    }
+
+    pub async fn new_account<T: AsRef<str>>(&self, mail: T) -> Result<Account<'_>, DirectoryError> {
+        let mut key_pair = self.crypto.private_key()?;
+        let uri = &self.server.directory().new_account;
+        let protected = self.protect(uri, &key_pair).await?;
+
+        let mail = format!("mailto:{}", mail.as_ref());
+        let account = ApiAccount::new(mail, true);
+        let signed = self.sign(&key_pair, protected, &account)?;
+
+        let (account, kid) = self.server.new_account(signed).await?;
+        key_pair.set_kid(kid);
+
+        Ok(Account {
+            directory: Cow::Borrowed(&self),
+            inner: account,
+            key_pair,
+        })
+    }
+}
+
 #[derive(Debug)]
 pub struct Account<'a> {
     directory: Cow<'a, Directory>,
@@ -169,7 +169,8 @@ impl<'a> Account<'a> {
 
         let signed = self.directory.sign(&self.key_pair, protected, &new_order)?;
 
-        let order = self.directory.server.new_order(signed).await?;
+        let (order, location) = self.directory.server.new_order(signed).await?;
+        panic!("{}", location);
         Ok(Order {
             directory: Cow::Borrowed(self.directory.deref()),
             inner: order,

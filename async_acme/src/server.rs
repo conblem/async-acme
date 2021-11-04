@@ -208,9 +208,9 @@ impl<C: Connect> AcmeServer for HyperAcmeServer<C> {
     async fn new_order(
         &self,
         req: SignedRequest<ApiNewOrder>,
-    ) -> Result<ApiOrder<()>, Self::Error> {
-        let (order, _location) = self.post(req, &self.directory.new_order).await?;
-        Ok(order)
+    ) -> Result<(ApiOrder<()>, String), Self::Error> {
+        let (order, location) = self.post(req, &self.directory.new_order).await?;
+        Ok((order, location))
     }
 
     async fn finalize(&self) -> Result<(), Self::Error> {
