@@ -265,7 +265,97 @@ impl<C: Connect> AcmeServer for HyperAcmeServer<C> {
 
 #[cfg(test)]
 mod tests {
+    use testcontainers::{clients, Image, Docker, Container};
+    use std::convert::Infallible;
+    use std::collections::HashMap;
+    use std::array::IntoIter;
+    use std::thread::{sleep, spawn};
+    use std::time::Duration;
+    use std::io;
+
     use super::*;
+
+    #[derive(Default)]
+    struct SmallStepVolumes;
+
+    impl IntoIterator for SmallStepVolumes {
+        type Item = (String, String);
+        type IntoIter = IntoIter<(String, String), 2>;
+
+        fn into_iter(self) -> Self::IntoIter {
+            let manifest_dir = env!("CARGO_MANIFEST_DIR");
+            let from = format!("{}/smallstep/config", manifest_dir);
+            let to = "/home/step/config/".to_string();
+            let config = (from, to);
+
+            let from = format!("{}/smallstep/secrets", manifest_dir);
+            let to = "/home/step/secrets/".to_string();
+            let secrets = (from, to);
+
+            IntoIter::new([config, secrets])
+        }
+    }
+
+
+    #[derive(Default)]
+    struct SmallStepArgs;
+
+    impl IntoIterator for SmallStepArgs {
+        type Item = String;
+        type IntoIter = IntoIter<String, 0>;
+
+        fn into_iter(self) -> Self::IntoIter {
+            IntoIter::new([])
+        }
+    }
+
+    #[derive(Default)]
+    struct SmallStep;
+
+    impl Image for SmallStep {
+        type Args = SmallStepArgs;
+        type EnvVars = HashMap<String, String>;
+        type Volumes = SmallStepVolumes;
+        type EntryPoint = Infallible;
+
+        fn descriptor(&self) -> String {
+            "smallstep/step-ca:0.17.6".to_string()
+        }
+
+        // todo: implement
+        fn wait_until_ready<D: Docker>(&self, container: &Container<'_, D, Self>) {
+            container.
+            let mut logs = container.logs();
+            let mut stdout = io::stdout();
+            io::copy(logs.stderr.as_mut(), &mut stdout);
+        }
+
+        fn args(&self) -> Self::Args {
+            SmallStepArgs::default()
+        }
+
+        fn env_vars(&self) -> Self::EnvVars {
+            HashMap::new()
+        }
+
+        fn volumes(&self) -> Self::Volumes {
+            SmallStepVolumes::default()
+        }
+
+        fn with_args(self, _arguments: Self::Args) -> Self {
+            self
+        }
+    }
+
+    #[test]
+    fn containers() {
+        let docker = clients::Cli::default();
+        MySql
+        let smallstep = SmallStep::default();
+        docker.run(smallstep);
+        sleep(Duration::from_secs(20));
+        panic!()
+    }
 
     #[test]
     fn endpoint_should_return_correct_url() {
