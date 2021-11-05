@@ -16,17 +16,35 @@ pub struct SignedRequest<P> {
     pub signature: String,
 }
 
-pub struct Payload<P> {
-    inner: String,
-    phantom: PhantomData<P>,
+pub enum Payload<P> {
+    Post {
+        inner: String,
+        phantom: PhantomData<P>,
+    },
+    Get,
+}
+
+impl<P> Payload<P> {
+    pub fn len(&self) -> usize {
+        match self {
+            Payload::Post { inner, .. } => inner.len(),
+            Payload::Get => 0,
+        }
+    }
 }
 
 impl<P> From<String> for Payload<P> {
     fn from(inner: String) -> Self {
-        Self {
+        Self::Post {
             inner,
             phantom: PhantomData,
         }
+    }
+}
+
+impl<P> Default for Payload<P> {
+    fn default() -> Self {
+        Payload::Get
     }
 }
 
@@ -35,7 +53,10 @@ impl<P> Serialize for Payload<P> {
     where
         S: Serializer,
     {
-        self.inner.serialize(serializer)
+        match self {
+            Payload::Post { inner, .. } => inner.serialize(serializer),
+            Payload::Get => "".serialize(serializer),
+        }
     }
 }
 
@@ -69,7 +90,8 @@ impl Serialize for Uri {
     where
         S: Serializer,
     {
-        serializer.serialize_str(format!("{}", &self.0).as_str())
+        let uri = format!("{}", &self.0);
+        serializer.serialize_str(&uri)
     }
 }
 

@@ -6,10 +6,12 @@ use async_trait::async_trait;
 use hyper::body::Bytes;
 use hyper::client::connect::Connect as HyperConnect;
 use hyper::http::header::{HeaderName, CONTENT_TYPE};
+use hyper::http::uri::InvalidUri;
 use hyper::http::HeaderValue;
-use hyper::{body, Response};
+use hyper::{body, Response, HeaderMap};
 use hyper::{Body, Client, Request};
 use serde::{Deserialize, Serialize};
+use std::convert::TryInto;
 use std::fmt::Debug;
 use std::str;
 use thiserror::Error;
@@ -54,6 +56,8 @@ pub enum HyperAcmeServerError {
     ApiError(ApiError),
     #[error("Invalid header {0} is {1:?}")]
     InvalidHeader(&'static str, Option<HeaderValue>),
+    #[error(transparent)]
+    InvalidUri(#[from] InvalidUri),
 }
 
 pub struct HyperAcmeServerBuilder<C> {
@@ -141,11 +145,32 @@ impl<C: Connect> HyperAcmeServer<C> {
         Err(HyperAcmeServerError::ApiError(error))
     }
 
+    fn extract_location(&self, headers: &mut HeaderMap<HeaderValue>) -> Result<Option<Uri>, HyperAcmeServerError> {
+        let location_header = match headers.remove(&self.location_header) {
+            Some(location) => location,
+            None => return Ok(None),
+        };
+
+        let invalid_error = |location: HeaderValue| {
+            Err(HyperAcmeServerError::InvalidHeader(LOCATION_HEADER, Some(location)))
+        };
+        let location = match location_header.to_str() {
+            Ok(location) => location.try_into(),
+            Err(_) => return invalid_error(location_header)
+        };
+        let location = match location {
+            Ok(location) => location,
+            Err(_) => return invalid_error(location_header)
+        };
+
+        Ok(Some(location))
+    }
+
     async fn post<T: Serialize, R>(
         &self,
         body: T,
         uri: &Uri,
-    ) -> Result<(R, String), HyperAcmeServerError>
+    ) -> Result<(R, Option<Uri>), HyperAcmeServerError>
     where
         R: for<'a> Deserialize<'a>,
     {
@@ -159,15 +184,9 @@ impl<C: Connect> HyperAcmeServer<C> {
         let body = body::to_bytes(res.body_mut()).await?;
         self.handle_if_error(&res, &body)?;
 
-        let location = res.headers_mut().remove(&self.location_header);
-
-        let location = location
-            .as_ref()
-            .and_then(|location| location.to_str().ok().map(ToOwned::to_owned))
-            .ok_or_else(|| HyperAcmeServerError::InvalidHeader(LOCATION_HEADER, location))?;
-
+        let location = self.extract_location(res.headers_mut())?;
         let res = serde_json::from_slice(body.as_ref())?;
-        Ok((res, location.to_string()))
+        Ok((res, location))
     }
 }
 
@@ -200,17 +219,43 @@ impl<C: Connect> AcmeServer for HyperAcmeServer<C> {
     async fn new_account(
         &self,
         req: SignedRequest<ApiAccount<()>>,
-    ) -> Result<(ApiAccount<()>, String), Self::Error> {
+    ) -> Result<(ApiAccount<()>, Uri), Self::Error> {
         let (account, kid) = self.post(req, &self.directory.new_account).await?;
+
+        let kid = match kid {
+            Some(kid) => kid,
+            None => return Err(HyperAcmeServerError::InvalidHeader(LOCATION_HEADER, None)),
+        };
+
         Ok((account, kid))
+    }
+
+    async fn get_account(
+        &self,
+        uri: &Uri,
+        req: SignedRequest<()>,
+    ) -> Result<ApiAccount<()>, Self::Error> {
+        let (account, _) = self.post(req, uri).await?;
+        Ok(account)
     }
 
     async fn new_order(
         &self,
         req: SignedRequest<ApiNewOrder>,
-    ) -> Result<(ApiOrder<()>, String), Self::Error> {
+    ) -> Result<(ApiOrder<()>, Uri), Self::Error> {
         let (order, location) = self.post(req, &self.directory.new_order).await?;
+
+        let location = match location {
+            Some(location) => location,
+            None => return Err(HyperAcmeServerError::InvalidHeader(LOCATION_HEADER, None)),
+        };
+
         Ok((order, location))
+    }
+
+    async fn get_order(&self, uri: &Uri, req: SignedRequest<()>) -> Result<ApiOrder<()>, Self::Error> {
+        let (order, _) = self.post(req, uri).await?;
+        Ok(order)
     }
 
     async fn finalize(&self) -> Result<(), Self::Error> {

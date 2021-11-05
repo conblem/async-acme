@@ -12,7 +12,6 @@ use crate::crypto::{
 };
 use crate::{HyperAcmeServer, HyperAcmeServerBuilder, HyperAcmeServerError};
 use std::borrow::Cow;
-use std::ops::Deref;
 
 type HttpsConnector = hyper_rustls::HttpsConnector<HttpConnector>;
 
@@ -53,12 +52,20 @@ impl Directory {
 }
 
 impl Directory {
-    async fn protect(&self, url: &Uri, key_pair: &RingKeyPair) -> Result<String, DirectoryError> {
+    async fn protect<'a, T>(
+        &self,
+        url: &Uri,
+        key_pair: &RingKeyPair,
+        kid: T,
+    ) -> Result<String, DirectoryError>
+    where
+        T: Into<Option<&'a Uri>>,
+    {
         let alg = key_pair.algorithm();
         let nonce = self.server.new_nonce().await?;
-        let jwk = match key_pair.get_kid() {
+        let jwk = match kid.into() {
             Some(kid) => AccountKey::KID(kid),
-            None => AccountKey::JWK(key_pair.public_key())
+            None => AccountKey::JWK(key_pair.public_key()),
         };
 
         let protected = Protected {
@@ -68,30 +75,42 @@ impl Directory {
             jwk,
         };
 
-        let protected = serde_json::to_vec(&protected)?;
-        Ok(base64::encode_config(protected, base64::URL_SAFE_NO_PAD))
+        self.serialize_and_base64_encode(&protected)
     }
 
-    fn sign<T: Serialize>(
+    fn serialize_and_base64_encode<T: Serialize>(
+        &self,
+        payload: &T,
+    ) -> Result<String, DirectoryError> {
+        let payload = serde_json::to_vec(payload)?;
+        Ok(base64::encode_config(payload, base64::URL_SAFE_NO_PAD))
+    }
+
+    fn sign<T, P>(
         &self,
         key_pair: &RingKeyPair,
         protected: String,
-        payload: &T,
-    ) -> Result<SignedRequest<T>, DirectoryError> {
-        let payload = serde_json::to_vec(payload)?;
-        let payload = base64::encode_config(payload, base64::URL_SAFE_NO_PAD);
-
-        let mut signer = self.crypto.signer(protected.len() + payload.len() + 1);
+        payload: P,
+    ) -> Result<SignedRequest<T>, DirectoryError>
+    where
+        T: Serialize,
+        P: Into<Option<String>>,
+    {
+        let payload = payload.into().map(Payload::from).unwrap_or_default();
+        let mut signer = self.crypto.signer(protected.len() + 1 + payload.len());
 
         signer.update(&protected);
         signer.update(b".");
-        signer.update(&payload);
+        match &payload {
+            Payload::Post { inner, .. } => signer.update(inner),
+            Payload::Get => {}
+        }
 
         let signature = signer.finish(key_pair)?;
         let signature = base64::encode_config(signature, base64::URL_SAFE_NO_PAD);
 
         Ok(SignedRequest {
-            payload: Payload::from(payload),
+            payload,
             signature,
             protected,
         })
@@ -117,20 +136,21 @@ impl Directory {
     }
 
     pub async fn new_account<T: AsRef<str>>(&self, mail: T) -> Result<Account<'_>, DirectoryError> {
-        let mut key_pair = self.crypto.private_key()?;
+        let key_pair = self.crypto.private_key()?;
         let uri = &self.server.directory().new_account;
-        let protected = self.protect(uri, &key_pair).await?;
+        let protected = self.protect(uri, &key_pair, None).await?;
 
         let mail = format!("mailto:{}", mail.as_ref());
         let account = ApiAccount::new(mail, true);
-        let signed = self.sign(&key_pair, protected, &account)?;
+        let account = self.serialize_and_base64_encode(&account)?;
+        let signed = self.sign(&key_pair, protected, account)?;
 
         let (account, kid) = self.server.new_account(signed).await?;
-        key_pair.set_kid(kid);
 
         Ok(Account {
             directory: Cow::Borrowed(&self),
             inner: account,
+            kid,
             key_pair,
         })
     }
@@ -140,6 +160,7 @@ impl Directory {
 pub struct Account<'a> {
     directory: Cow<'a, Directory>,
     inner: ApiAccount<()>,
+    kid: Uri,
     key_pair: RingKeyPair,
 }
 
@@ -149,8 +170,21 @@ impl<'a> Account<'a> {
         Account {
             directory: Cow::Owned(server),
             inner: self.inner,
+            kid: self.kid,
             key_pair: self.key_pair,
         }
+    }
+
+    pub async fn update(&mut self) -> Result<&mut Account<'a>, DirectoryError> {
+        let protected = self
+            .directory
+            .protect(&self.kid, &self.key_pair, &self.kid)
+            .await?;
+        let signed: SignedRequest<()> = self.directory.sign(&self.key_pair, protected, None)?;
+
+        let account= self.directory.server.get_account(&self.kid, signed).await?;
+        self.inner = account;
+        Ok(self)
     }
 
     pub async fn new_order<T: AsRef<str>>(&self, domain: T) -> Result<Order<'_>, DirectoryError> {
@@ -165,34 +199,46 @@ impl<'a> Account<'a> {
         };
 
         let uri = &self.directory.server.directory().new_order;
-        let protected = self.directory.protect(uri, &self.key_pair).await?;
+        let protected = self
+            .directory
+            .protect(uri, &self.key_pair, &self.kid)
+            .await?;
 
-        let signed = self.directory.sign(&self.key_pair, protected, &new_order)?;
+        let new_order = self.directory.serialize_and_base64_encode(&new_order)?;
+        let signed = self.directory.sign(&self.key_pair, protected, new_order)?;
 
         let (order, location) = self.directory.server.new_order(signed).await?;
-        panic!("{}", location);
         Ok(Order {
-            directory: Cow::Borrowed(self.directory.deref()),
+            account: &self,
             inner: order,
+            location
         })
     }
 }
 
 #[derive(Debug)]
 pub struct Order<'a> {
-    directory: Cow<'a, Directory>,
+    account: &'a Account<'a>,
     inner: ApiOrder<()>,
+    location: Uri,
 }
 
-impl<'a> Order<'a> {
-    fn into_owned(self) -> Order<'static> {
-        let server = self.directory.into_owned();
-        Order {
-            directory: Cow::Owned(server),
-            inner: self.inner,
-        }
+impl <'a> Order<'a> {
+    pub async fn update(&mut self) -> Result<&mut Order<'a>, DirectoryError> {
+        let account = self.account;
+
+        let protected = account
+            .directory
+            .protect(&self.location, &account.key_pair, &account.kid)
+            .await?;
+        let signed: SignedRequest<()> = self.account.directory.sign(&account.key_pair, protected, None)?;
+
+        let order = account.directory.server.get_order(&self.location, signed).await?;
+        self.inner = order;
+        Ok(self)
     }
 }
+
 
 struct Protected<'a> {
     alg: &'static str,
@@ -219,7 +265,7 @@ impl Serialize for Protected<'_> {
 
 enum AccountKey<'a> {
     JWK(&'a RingPublicKey),
-    KID(&'a str),
+    KID(&'a Uri),
 }
 
 impl Serialize for AccountKey<'_> {
@@ -239,7 +285,8 @@ mod tests {
     async fn test() -> Result<(), DirectoryError> {
         let directory = Directory::from_le_staging().await?;
         let account = directory.new_account("test@test.com").await?;
-        let order = account.new_order("example.com").await?;
+        let mut order = account.new_order("example.com").await?;
+        order.update().await?;
         panic!("{:?}", order)
     }
 }
