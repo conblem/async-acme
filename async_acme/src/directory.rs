@@ -182,7 +182,7 @@ impl<'a> Account<'a> {
             .await?;
         let signed: SignedRequest<()> = self.directory.sign(&self.key_pair, protected, None)?;
 
-        let account= self.directory.server.get_account(&self.kid, signed).await?;
+        let account = self.directory.server.get_account(&self.kid, signed).await?;
         self.inner = account;
         Ok(self)
     }
@@ -211,7 +211,7 @@ impl<'a> Account<'a> {
         Ok(Order {
             account: &self,
             inner: order,
-            location
+            location,
         })
     }
 }
@@ -223,7 +223,7 @@ pub struct Order<'a> {
     location: Uri,
 }
 
-impl <'a> Order<'a> {
+impl<'a> Order<'a> {
     pub async fn update(&mut self) -> Result<&mut Order<'a>, DirectoryError> {
         let account = self.account;
 
@@ -231,14 +231,20 @@ impl <'a> Order<'a> {
             .directory
             .protect(&self.location, &account.key_pair, &account.kid)
             .await?;
-        let signed: SignedRequest<()> = self.account.directory.sign(&account.key_pair, protected, None)?;
+        let signed: SignedRequest<()> =
+            self.account
+                .directory
+                .sign(&account.key_pair, protected, None)?;
 
-        let order = account.directory.server.get_order(&self.location, signed).await?;
+        let order = account
+            .directory
+            .server
+            .get_order(&self.location, signed)
+            .await?;
         self.inner = order;
         Ok(self)
     }
 }
-
 
 struct Protected<'a> {
     alg: &'static str,

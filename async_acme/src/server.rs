@@ -8,7 +8,7 @@ use hyper::client::connect::Connect as HyperConnect;
 use hyper::http::header::{HeaderName, CONTENT_TYPE};
 use hyper::http::uri::InvalidUri;
 use hyper::http::HeaderValue;
-use hyper::{body, Response, HeaderMap};
+use hyper::{body, HeaderMap, Response};
 use hyper::{Body, Client, Request};
 use serde::{Deserialize, Serialize};
 use std::convert::TryInto;
@@ -145,22 +145,28 @@ impl<C: Connect> HyperAcmeServer<C> {
         Err(HyperAcmeServerError::ApiError(error))
     }
 
-    fn extract_location(&self, headers: &mut HeaderMap<HeaderValue>) -> Result<Option<Uri>, HyperAcmeServerError> {
+    fn extract_location(
+        &self,
+        headers: &mut HeaderMap<HeaderValue>,
+    ) -> Result<Option<Uri>, HyperAcmeServerError> {
         let location_header = match headers.remove(&self.location_header) {
             Some(location) => location,
             None => return Ok(None),
         };
 
         let invalid_error = |location: HeaderValue| {
-            Err(HyperAcmeServerError::InvalidHeader(LOCATION_HEADER, Some(location)))
+            Err(HyperAcmeServerError::InvalidHeader(
+                LOCATION_HEADER,
+                Some(location),
+            ))
         };
         let location = match location_header.to_str() {
             Ok(location) => location.try_into(),
-            Err(_) => return invalid_error(location_header)
+            Err(_) => return invalid_error(location_header),
         };
         let location = match location {
             Ok(location) => location,
-            Err(_) => return invalid_error(location_header)
+            Err(_) => return invalid_error(location_header),
         };
 
         Ok(Some(location))
@@ -253,7 +259,11 @@ impl<C: Connect> AcmeServer for HyperAcmeServer<C> {
         Ok((order, location))
     }
 
-    async fn get_order(&self, uri: &Uri, req: SignedRequest<()>) -> Result<ApiOrder<()>, Self::Error> {
+    async fn get_order(
+        &self,
+        uri: &Uri,
+        req: SignedRequest<()>,
+    ) -> Result<ApiOrder<()>, Self::Error> {
         let (order, _) = self.post(req, uri).await?;
         Ok(order)
     }
@@ -265,95 +275,52 @@ impl<C: Connect> AcmeServer for HyperAcmeServer<C> {
 
 #[cfg(test)]
 mod tests {
-    use testcontainers::{clients, Image, Docker, Container};
-    use std::convert::Infallible;
-    use std::collections::HashMap;
-    use std::array::IntoIter;
-    use std::thread::{sleep, spawn};
+    use std::thread::sleep;
     use std::time::Duration;
+    use testcontainers::images::generic::{GenericImage, WaitFor};
+    use testcontainers::{clients, Docker, RunArgs};
     use std::io;
 
     use super::*;
 
-    #[derive(Default)]
-    struct SmallStepVolumes;
+    fn small_step_container() -> GenericImage {
+        let manifest_dir = env!("CARGO_MANIFEST_DIR");
+        let from = format!("{}/smallstep/config", manifest_dir);
+        let to = "/home/step/config/".to_string();
+        let config = (from, to);
 
-    impl IntoIterator for SmallStepVolumes {
-        type Item = (String, String);
-        type IntoIter = IntoIter<(String, String), 2>;
+        let from = format!("{}/smallstep/secrets", manifest_dir);
+        let to = "/home/step/secrets/".to_string();
+        let secrets = (from, to);
 
-        fn into_iter(self) -> Self::IntoIter {
-            let manifest_dir = env!("CARGO_MANIFEST_DIR");
-            let from = format!("{}/smallstep/config", manifest_dir);
-            let to = "/home/step/config/".to_string();
-            let config = (from, to);
-
-            let from = format!("{}/smallstep/secrets", manifest_dir);
-            let to = "/home/step/secrets/".to_string();
-            let secrets = (from, to);
-
-            IntoIter::new([config, secrets])
-        }
+        GenericImage::new("smallstep/step-ca:0.17.6")
+            .with_volume(config.0, config.1)
+            .with_volume(secrets.0, secrets.1)
     }
 
-
-    #[derive(Default)]
-    struct SmallStepArgs;
-
-    impl IntoIterator for SmallStepArgs {
-        type Item = String;
-        type IntoIter = IntoIter<String, 0>;
-
-        fn into_iter(self) -> Self::IntoIter {
-            IntoIter::new([])
-        }
-    }
-
-    #[derive(Default)]
-    struct SmallStep;
-
-    impl Image for SmallStep {
-        type Args = SmallStepArgs;
-        type EnvVars = HashMap<String, String>;
-        type Volumes = SmallStepVolumes;
-        type EntryPoint = Infallible;
-
-        fn descriptor(&self) -> String {
-            "smallstep/step-ca:0.17.6".to_string()
-        }
-
-        // todo: implement
-        fn wait_until_ready<D: Docker>(&self, container: &Container<'_, D, Self>) {
-            container.
-            let mut logs = container.logs();
-            let mut stdout = io::stdout();
-            io::copy(logs.stderr.as_mut(), &mut stdout);
-        }
-
-        fn args(&self) -> Self::Args {
-            SmallStepArgs::default()
-        }
-
-        fn env_vars(&self) -> Self::EnvVars {
-            HashMap::new()
-        }
-
-        fn volumes(&self) -> Self::Volumes {
-            SmallStepVolumes::default()
-        }
-
-        fn with_args(self, _arguments: Self::Args) -> Self {
-            self
-        }
+    fn mysql_container() -> GenericImage {
+        let wait_for = WaitFor::message_on_stdout("MySQL init process done");
+        GenericImage::new("mysql:8")
+            .with_wait_for(wait_for)
+            .with_env_var("MYSQL_ROOT_PASSWORD", "password")
     }
 
     #[test]
     fn containers() {
+        let smallstep_args = RunArgs::default().with_network("smallstep");
+        let mysql_args = smallstep_args.clone().with_name("mysql");
         let docker = clients::Cli::default();
-        MySql
-        let smallstep = SmallStep::default();
-        docker.run(smallstep);
-        sleep(Duration::from_secs(20));
+
+        let mysql = mysql_container();
+        let _mysql = docker.run_with_args(mysql, mysql_args);
+
+        //sleep(Duration::from_secs(20));
+
+        let smallstep = small_step_container();
+        let smallstep = docker.run_with_args(smallstep, smallstep_args);
+        let mut stderr = smallstep.logs().stderr;
+        io::copy(stderr.as_mut(), &mut io::stderr()).unwrap();
+
         panic!()
     }
 
