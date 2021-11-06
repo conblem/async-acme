@@ -275,11 +275,11 @@ impl<C: Connect> AcmeServer for HyperAcmeServer<C> {
 
 #[cfg(test)]
 mod tests {
+    use std::io;
     use std::thread::sleep;
     use std::time::Duration;
     use testcontainers::images::generic::{GenericImage, WaitFor};
     use testcontainers::{clients, Docker, RunArgs};
-    use std::io;
 
     use super::*;
 
