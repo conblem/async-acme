@@ -90,6 +90,7 @@ impl<C: Connect> AcmeServerBuilder for HyperAcmeServerBuilder<C> {
 
         let req = Request::get(self.endpoint.to_str()).body(Body::empty())?;
         let mut res = client.request(req).await?;
+        // does no length check if in the future we allow custom acme endpoints we should keep this in mind
         let body = body::to_bytes(res.body_mut()).await?;
 
         let directory = serde_json::from_slice(body.as_ref())?;
@@ -276,18 +277,18 @@ impl<C: Connect> AcmeServer for HyperAcmeServer<C> {
 #[cfg(test)]
 mod tests {
     use acme_core::AmceServerExt;
+    use hyper::client::HttpConnector;
     use hyper_rustls::HttpsConnector;
     use rustls::{
         Certificate, ClientConfig, RootCertStore, ServerCertVerified, ServerCertVerifier, TLSError,
     };
+    use std::convert::TryFrom;
     use std::sync::Arc;
     use testcontainers::images::generic::{GenericImage, WaitFor};
     use testcontainers::{clients, Container, Docker, Image, RunArgs};
+    use webpki::DNSNameRef;
 
     use super::*;
-    use hyper::client::HttpConnector;
-    use webpki::DNSNameRef;
-    use std::convert::TryFrom;
 
     fn small_step_container(docker: &clients::Cli) -> Container<'_, clients::Cli, GenericImage> {
         let manifest_dir = env!("CARGO_MANIFEST_DIR");
@@ -355,9 +356,6 @@ mod tests {
             .dangerous()
             .set_certificate_verifier(Arc::new(InsecureServerVerifier));
 
-        config.alpn_protocols = vec![b"h2".to_vec(), b"http/1.1".to_vec()];
-        //config.ct_logs = Some(&ct_logs::LOGS);
-
         let mut http = HttpConnector::new();
         http.enforce_http(false);
 
@@ -399,12 +397,27 @@ mod tests {
         } = server.directory;
 
         // test if directory returns correct url
-        assert_eq!(new_nonce, Uri::try_from("https://localhost:31443/acme/acme/new-nonce").unwrap());
-        assert_eq!(new_account, Uri::try_from("https://localhost:31443/acme/acme/new-account").unwrap());
-        assert_eq!(new_order, Uri::try_from("https://localhost:31443/acme/acme/new-order").unwrap());
+        assert_eq!(
+            new_nonce,
+            Uri::try_from("https://localhost:31443/acme/acme/new-nonce").unwrap()
+        );
+        assert_eq!(
+            new_account,
+            Uri::try_from("https://localhost:31443/acme/acme/new-account").unwrap()
+        );
+        assert_eq!(
+            new_order,
+            Uri::try_from("https://localhost:31443/acme/acme/new-order").unwrap()
+        );
         assert_eq!(new_authz, None);
-        assert_eq!(revoke_cert, Uri::try_from("https://localhost:31443/acme/acme/revoke-cert").unwrap());
-        assert_eq!(key_change, Uri::try_from("https://localhost:31443/acme/acme/key-change").unwrap());
+        assert_eq!(
+            revoke_cert,
+            Uri::try_from("https://localhost:31443/acme/acme/revoke-cert").unwrap()
+        );
+        assert_eq!(
+            key_change,
+            Uri::try_from("https://localhost:31443/acme/acme/key-change").unwrap()
+        );
         assert_eq!(meta, None);
     }
 
