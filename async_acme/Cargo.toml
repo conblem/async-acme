@@ -13,7 +13,7 @@ async-trait = { version = "0.1" }
 hyper = { version = "0.14", default-features = false, features = ["client", "http1", "http2", "runtime"]}
 # in the future this crates gets the http1 feature added keep an eye on this
 hyper-rustls = { version = "0.22", default-features = false, features = ["webpki-tokio"] }
-rustls = { version = "0.20" }
+rustls = { version = "0.19" }
 ring = { version = "0.16"}
 serde_json = { version = "1" }
 acme_core = { path = "../acme_core" }
@@ -25,3 +25,5 @@ base64 = "0.13"
 [dev-dependencies]
 tokio = { version = "1", default-features = false, features = ["macros"]}
 testcontainers = "0.12"
+rustls = { version = "0.19", features = ["dangerous_configuration"] }
+webpki = "0.21.0"

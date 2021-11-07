@@ -124,8 +124,8 @@ impl<C> HyperAcmeServerBuilder<C> {
         self
     }
 
-    pub(crate) fn url(&mut self, url: String) -> &mut Self {
-        self.endpoint = Endpoint::Url(url);
+    pub(crate) fn url<T: ToString>(&mut self, url: T) -> &mut Self {
+        self.endpoint = Endpoint::Url(url.to_string());
         self
     }
 }
@@ -275,15 +275,21 @@ impl<C: Connect> AcmeServer for HyperAcmeServer<C> {
 
 #[cfg(test)]
 mod tests {
-    use std::io;
-    use std::thread::sleep;
-    use std::time::Duration;
+    use acme_core::AmceServerExt;
+    use hyper_rustls::HttpsConnector;
+    use rustls::{
+        Certificate, ClientConfig, RootCertStore, ServerCertVerified,
+        ServerCertVerifier, TLSError,
+    };
+    use std::sync::Arc;
     use testcontainers::images::generic::{GenericImage, WaitFor};
-    use testcontainers::{clients, Docker, RunArgs};
+    use testcontainers::{clients, Container, Docker, Image, RunArgs};
 
     use super::*;
+    use hyper::client::HttpConnector;
+    use webpki::DNSNameRef;
 
-    fn small_step_container() -> GenericImage {
+    fn small_step_container(docker: &clients::Cli) -> Container<'_, clients::Cli, GenericImage> {
         let manifest_dir = env!("CARGO_MANIFEST_DIR");
         let from = format!("{}/smallstep/config", manifest_dir);
         let to = "/home/step/config/".to_string();
@@ -293,33 +299,89 @@ mod tests {
         let to = "/home/step/secrets/".to_string();
         let secrets = (from, to);
 
-        GenericImage::new("smallstep/step-ca:0.17.6")
+        let args = vec![
+            "/bin/sh".to_string(),
+            "-c".to_string(),
+            "exec /usr/local/bin/step-ca /home/step/config/ca.json --issuer-password-file /home/step/secrets/password".to_string(),
+        ];
+
+        // should be stdout container does weird stuff
+        let wait_for = WaitFor::message_on_stderr("Serving HTTPS");
+
+        let smallstep = GenericImage::new("smallstep/step-ca:0.17.6")
             .with_volume(config.0, config.1)
             .with_volume(secrets.0, secrets.1)
+            .with_args(args)
+            .with_wait_for(wait_for);
+
+        let smallstep_args = RunArgs::default()
+            .with_network("smallstep")
+            .with_mapped_port((31443, 443));
+
+        docker.run_with_args(smallstep, smallstep_args)
     }
 
-    fn mysql_container() -> GenericImage {
+    fn mysql_container(docker: &clients::Cli) -> Container<'_, clients::Cli, GenericImage> {
         let wait_for = WaitFor::message_on_stdout("MySQL init process done");
-        GenericImage::new("mysql:8")
-            .with_wait_for(wait_for)
+        let mysql = GenericImage::new("mysql:8")
             .with_env_var("MYSQL_ROOT_PASSWORD", "password")
+            .with_env_var("MYSQL_DATABASE", "smallstep")
+            .with_wait_for(wait_for);
+
+        let mysql_args = RunArgs::default()
+            .with_network("smallstep")
+            .with_name("mysql");
+
+        docker.run_with_args(mysql, mysql_args)
     }
 
-    #[test]
-    fn containers() {
-        let smallstep_args = RunArgs::default().with_network("smallstep");
-        let mysql_args = smallstep_args.clone().with_name("mysql");
+    struct InsecureServerVerifier;
+
+    impl ServerCertVerifier for InsecureServerVerifier {
+        fn verify_server_cert(
+            &self,
+            _roots: &RootCertStore,
+            _presented_certs: &[Certificate],
+            _dns_name: DNSNameRef,
+            _ocsp_response: &[u8],
+        ) -> Result<ServerCertVerified, TLSError> {
+            Ok(ServerCertVerified::assertion())
+        }
+
+        /*fn verify_tls12_signature(&self, message: &[u8], cert: &Certificate, dss: &DigitallySignedStruct) -> Result<HandshakeSignatureValid, TLSError> {
+            Ok(ServerCertVerified::assertion())
+            todo!()
+        }
+
+        fn verify_tls13_signature(&self, message: &[u8], cert: &Certificate, dss: &DigitallySignedStruct) -> Result<HandshakeSignatureValid, TLSError> {
+            Ok(ServerCertVerified::assertion())
+            todo!()
+        }*/
+    }
+
+    fn unsecure_connector() -> HttpsConnector<HttpConnector> {
+        let mut config = ClientConfig::new();
+        config
+            .dangerous()
+            .set_certificate_verifier(Arc::new(InsecureServerVerifier));
+
+        HttpsConnector::from((HttpConnector::new(), config))
+    }
+
+    #[tokio::test]
+    async fn containers() {
         let docker = clients::Cli::default();
 
-        let mysql = mysql_container();
-        let _mysql = docker.run_with_args(mysql, mysql_args);
+        let _mysql = mysql_container(&docker);
+        let _smallstep = small_step_container(&docker);
 
-        //sleep(Duration::from_secs(20));
-
-        let smallstep = small_step_container();
-        let smallstep = docker.run_with_args(smallstep, smallstep_args);
-        let mut stderr = smallstep.logs().stderr;
-        io::copy(stderr.as_mut(), &mut io::stderr()).unwrap();
+        let connector = unsecure_connector();
+        let _server = HyperAcmeServer::builder()
+            .url("https://localhost:31443/acme/acme-ra-jwk/directory")
+            .connector(connector)
+            .build()
+            .await
+            .unwrap();
 
         panic!()
     }
