@@ -134,7 +134,7 @@ impl<'de> Deserialize<'de> for Uri {
     }
 }
 
-#[derive(Clone, Serialize, Deserialize, Debug)]
+#[derive(Clone, Serialize, Deserialize, Debug, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct ApiDirectory {
     pub new_nonce: Uri,
@@ -148,7 +148,7 @@ pub struct ApiDirectory {
     pub meta: Option<ApiMeta>,
 }
 
-#[derive(Clone, Serialize, Deserialize, Debug)]
+#[derive(Clone, Serialize, Deserialize, Debug, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct ApiMeta {
     pub terms_of_service: Option<String>,

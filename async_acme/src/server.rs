@@ -278,8 +278,7 @@ mod tests {
     use acme_core::AmceServerExt;
     use hyper_rustls::HttpsConnector;
     use rustls::{
-        Certificate, ClientConfig, RootCertStore, ServerCertVerified,
-        ServerCertVerifier, TLSError,
+        Certificate, ClientConfig, RootCertStore, ServerCertVerified, ServerCertVerifier, TLSError,
     };
     use std::sync::Arc;
     use testcontainers::images::generic::{GenericImage, WaitFor};
@@ -288,6 +287,7 @@ mod tests {
     use super::*;
     use hyper::client::HttpConnector;
     use webpki::DNSNameRef;
+    use std::convert::TryFrom;
 
     fn small_step_container(docker: &clients::Cli) -> Container<'_, clients::Cli, GenericImage> {
         let manifest_dir = env!("CARGO_MANIFEST_DIR");
@@ -347,16 +347,6 @@ mod tests {
         ) -> Result<ServerCertVerified, TLSError> {
             Ok(ServerCertVerified::assertion())
         }
-
-        /*fn verify_tls12_signature(&self, message: &[u8], cert: &Certificate, dss: &DigitallySignedStruct) -> Result<HandshakeSignatureValid, TLSError> {
-            Ok(ServerCertVerified::assertion())
-            todo!()
-        }
-
-        fn verify_tls13_signature(&self, message: &[u8], cert: &Certificate, dss: &DigitallySignedStruct) -> Result<HandshakeSignatureValid, TLSError> {
-            Ok(ServerCertVerified::assertion())
-            todo!()
-        }*/
     }
 
     fn unsecure_connector() -> HttpsConnector<HttpConnector> {
@@ -365,7 +355,13 @@ mod tests {
             .dangerous()
             .set_certificate_verifier(Arc::new(InsecureServerVerifier));
 
-        HttpsConnector::from((HttpConnector::new(), config))
+        config.alpn_protocols = vec![b"h2".to_vec(), b"http/1.1".to_vec()];
+        //config.ct_logs = Some(&ct_logs::LOGS);
+
+        let mut http = HttpConnector::new();
+        http.enforce_http(false);
+
+        HttpsConnector::from((http, config))
     }
 
     #[tokio::test]
@@ -375,15 +371,41 @@ mod tests {
         let _mysql = mysql_container(&docker);
         let _smallstep = small_step_container(&docker);
 
-        let connector = unsecure_connector();
-        let _server = HyperAcmeServer::builder()
-            .url("https://localhost:31443/acme/acme-ra-jwk/directory")
-            .connector(connector)
+        let server = HyperAcmeServer::builder()
+            .url("https://localhost:31443/acme/acme/directory")
+            .connector(unsecure_connector())
             .build()
             .await
             .unwrap();
 
-        panic!()
+        // check if directory getter works as expected
+        assert_eq!(&server.directory, server.directory());
+
+        // test if we get a nonce and if two nonces are different
+        let nonce_one = server.new_nonce().await.unwrap();
+        let nonce_two = server.new_nonce().await.unwrap();
+        assert_eq!(nonce_one.len(), 43);
+        assert_eq!(nonce_one.len(), 43);
+        assert_ne!(nonce_one, nonce_two);
+
+        let ApiDirectory {
+            new_nonce,
+            new_account,
+            new_order,
+            new_authz,
+            revoke_cert,
+            key_change,
+            meta,
+        } = server.directory;
+
+        // test if directory returns correct url
+        assert_eq!(new_nonce, Uri::try_from("https://localhost:31443/acme/acme/new-nonce").unwrap());
+        assert_eq!(new_account, Uri::try_from("https://localhost:31443/acme/acme/new-account").unwrap());
+        assert_eq!(new_order, Uri::try_from("https://localhost:31443/acme/acme/new-order").unwrap());
+        assert_eq!(new_authz, None);
+        assert_eq!(revoke_cert, Uri::try_from("https://localhost:31443/acme/acme/revoke-cert").unwrap());
+        assert_eq!(key_change, Uri::try_from("https://localhost:31443/acme/acme/key-change").unwrap());
+        assert_eq!(meta, None);
     }
 
     #[test]
