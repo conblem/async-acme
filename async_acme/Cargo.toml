@@ -8,6 +8,7 @@ edition = "2018"
 [dependencies]
 acme_core = { path = "../acme_core" }
 nginx_minio = { path = "../nginx_minio" }
+mysql = { path = "../mysql" }
 
 # figure out if we use parkin lot anyway so we can use it as dependency
 tokio = { version = "1", default-features = false, features = ["rt-multi-thread", "net", "parking_lot"]}

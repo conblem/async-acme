@@ -3,5 +3,7 @@
 members = [
     "acme_core",
     "async_acme",
-    "nginx_minio"
+    "nginx_minio",
+    "powerdns",
+    "mysql"
 ]

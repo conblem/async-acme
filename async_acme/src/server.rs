@@ -288,6 +288,8 @@ mod tests {
     use testcontainers::{clients, Container, Docker, Image, RunArgs};
     use webpki::DNSNameRef;
 
+    use mysql::mysql_container;
+
     use super::*;
 
     fn small_step_container(docker: &clients::Cli) -> Container<'_, clients::Cli, GenericImage> {
@@ -316,24 +318,10 @@ mod tests {
             .with_wait_for(wait_for);
 
         let smallstep_args = RunArgs::default()
-            .with_network("smallstep")
+            .with_network("asyncacme")
             .with_mapped_port((31443, 443));
 
         docker.run_with_args(smallstep, smallstep_args)
-    }
-
-    fn mysql_container(docker: &clients::Cli) -> Container<'_, clients::Cli, GenericImage> {
-        let wait_for = WaitFor::message_on_stdout("MySQL init process done");
-        let mysql = GenericImage::new("mysql:8")
-            .with_env_var("MYSQL_ROOT_PASSWORD", "password")
-            .with_env_var("MYSQL_DATABASE", "smallstep")
-            .with_wait_for(wait_for);
-
-        let mysql_args = RunArgs::default()
-            .with_network("smallstep")
-            .with_name("mysql");
-
-        docker.run_with_args(mysql, mysql_args)
     }
 
     struct InsecureServerVerifier;
@@ -366,7 +354,7 @@ mod tests {
     async fn containers() {
         let docker = clients::Cli::default();
 
-        let _mysql = mysql_container(&docker);
+        let _mysql = mysql_container(&docker, "mysql-stepca");
         let _smallstep = small_step_container(&docker);
 
         let server = HyperAcmeServer::builder()
