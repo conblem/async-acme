@@ -11,6 +11,5 @@ mysql = { path = "../mysql" }
 serde = { version = "1", features = ["derive"] }
 reqwest = "0.11"
 testcontainers = "0.12"
-portpicker = "0.1"
 
 [dev-dependencies]
