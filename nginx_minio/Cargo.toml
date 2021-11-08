@@ -1,0 +1,15 @@
+[package]
+name = "nginx_minio"
+version = "0.1.0"
+edition = "2018"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+aws-creds = "0.26"
+testcontainers = "0.12"
+rust-s3 = "0.27.0"
+
+[dev-dependencies]
+tokio = { version = "1", features = ["full"] }
+reqwest = "0.11"

@@ -2,5 +2,6 @@
 
 members = [
     "acme_core",
-    "async_acme"
+    "async_acme",
+    "nginx_minio"
 ]
