@@ -94,7 +94,6 @@ pub mod tests {
         let docker = clients::Cli::default();
 
         let minio = minio(&docker);
-        let minio_port = minio.get_host_port(9000).ok_or("Is empty")?;
 
         let nginx = nginx(&docker);
         let nginx_port = nginx.get_host_port(80).ok_or("Is empty")?;
