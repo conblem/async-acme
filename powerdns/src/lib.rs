@@ -117,9 +117,13 @@ mod tests {
         let powerdns = powerdns_container(&docker, "powerdns", "mysql-powerdns");
         let powerdns_port = powerdns.get_host_port(8081).ok_or("Port not found")?;
 
-        let client = Client::new(format!("http://localhost:{}", powerdns_port));
+        tokio::time::sleep(std::time::Duration::from_secs(10)).await;
+
+        let client = Client::new(format!("http://localhost:{}/api/v1", powerdns_port));
         let servers = client.get_servers().await?;
         assert_eq!(servers.len(), 1);
+
+        tokio::time::sleep(std::time::Duration::from_secs(10)).await;
 
         Ok(())
     }
