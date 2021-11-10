@@ -1,7 +1,8 @@
 use std::array::IntoIter;
 use std::collections::HashMap;
-use testcontainers::{clients, Container, Docker, Image, RunArgs, WaitForMessage};
+use std::io::{BufRead, BufReader};
 use testcontainers::images::generic::GenericImage;
+use testcontainers::{clients, Container, Docker, Image, RunArgs, WaitError, WaitForMessage};
 
 #[derive(Default)]
 pub struct MySqlEnv;
@@ -32,9 +33,32 @@ impl Image for MySqlImage {
     }
 
     fn wait_until_ready<D: Docker>(&self, container: &Container<'_, D, Self>) {
-        std::thread::sleep(std::time::Duration::from_secs(20));
-        let stdout = container.logs().stdout;
-        stdout.wait_for_message("MySQL init process done. Ready for start up.").unwrap();
+        let mut last_messages = vec![];
+        let mut expected_messages = vec![
+            "MySQL init process done. Ready for start up",
+            "/usr/sbin/mysqld: ready for connections",
+        ]
+        .into_iter()
+        .peekable();
+
+        let mut stdout = container.logs().stdout;
+        for _ in 0..10 {
+            let expected_message = match expected_messages.peek() {
+                Some(expected_message) => expected_message,
+                None => return,
+            };
+
+            match stdout.as_mut().wait_for_message(expected_message) {
+                Err(WaitError::EndOfStream(messages)) => {
+                    last_messages = messages;
+                    stdout = container.logs().stderr;
+                }
+                Err(err @ WaitError::IO(_)) => Err(err).unwrap(),
+                Ok(()) => { expected_messages.next(); },
+            }
+        }
+
+        Err(WaitError::EndOfStream(last_messages)).unwrap()
     }
 
     fn args(&self) -> Self::Args {
