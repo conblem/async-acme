@@ -1,19 +1,67 @@
-use testcontainers::images::generic::{GenericImage, WaitFor};
-use testcontainers::{clients, Container, Docker, RunArgs};
+use std::array::IntoIter;
+use std::collections::HashMap;
+use testcontainers::{clients, Container, Docker, Image, RunArgs, WaitForMessage};
+use testcontainers::images::generic::GenericImage;
+
+#[derive(Default)]
+pub struct MySqlEnv;
+
+impl IntoIterator for MySqlEnv {
+    type Item = (String, String);
+    type IntoIter = IntoIter<(String, String), 2>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        let password = ("MYSQL_ROOT_PASSWORD".to_string(), "root".to_string());
+        let database = ("MYSQL_DATABASE".to_string(), "asyncacme".to_string());
+
+        IntoIter::new([password, database])
+    }
+}
+
+#[derive(Default)]
+pub struct MySqlImage;
+
+impl Image for MySqlImage {
+    type Args = Vec<String>;
+    type EnvVars = MySqlEnv;
+    type Volumes = HashMap<String, String>;
+    type EntryPoint = String;
+
+    fn descriptor(&self) -> String {
+        "mysql:latest".to_string()
+    }
+
+    fn wait_until_ready<D: Docker>(&self, container: &Container<'_, D, Self>) {
+        std::thread::sleep(std::time::Duration::from_secs(20));
+        let stdout = container.logs().stdout;
+        stdout.wait_for_message("MySQL init process done. Ready for start up.").unwrap();
+    }
+
+    fn args(&self) -> Self::Args {
+        Self::Args::default()
+    }
+
+    fn env_vars(&self) -> Self::EnvVars {
+        Self::EnvVars::default()
+    }
+
+    fn volumes(&self) -> Self::Volumes {
+        Self::Volumes::default()
+    }
+
+    fn with_args(self, _arguments: Self::Args) -> Self {
+        unimplemented!()
+    }
+}
 
 pub fn mysql_container<T: ToString>(
     docker: &clients::Cli,
     name: T,
-) -> Container<'_, clients::Cli, GenericImage> {
-    let wait_for = WaitFor::message_on_stdout("MySQL init process done. Ready for start up.");
-    let mysql = GenericImage::new("mysql:8")
-        .with_env_var("MYSQL_ROOT_PASSWORD", "root")
-        .with_env_var("MYSQL_DATABASE", "asyncacme")
-        .with_wait_for(wait_for);
-
+) -> Container<'_, clients::Cli, MySqlImage> {
+    GenericImage::new("test;");
     let mysql_args = RunArgs::default().with_network("asyncacme").with_name(name);
 
-    docker.run_with_args(mysql, mysql_args)
+    docker.run_with_args(MySqlImage::default(), mysql_args)
 }
 
 #[cfg(test)]
