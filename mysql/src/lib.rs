@@ -1,8 +1,9 @@
 use std::array::IntoIter;
 use std::collections::HashMap;
-use std::io::{BufRead, BufReader};
+use std::io::{BufRead, BufReader, Read, Chain};
 use testcontainers::images::generic::GenericImage;
 use testcontainers::{clients, Container, Docker, Image, RunArgs, WaitError, WaitForMessage};
+use testcontainers::core::Logs;
 
 #[derive(Default)]
 pub struct MySqlEnv;
@@ -22,6 +23,11 @@ impl IntoIterator for MySqlEnv {
 #[derive(Default)]
 pub struct MySqlImage;
 
+fn logs<D: Docker>(container: &Container<'_, D, MySqlImage>) -> Chain<Box<dyn Read>, Box<dyn Read>> {
+    let Logs { stdout, stderr } = container.logs();
+    stdout.chain(stderr)
+}
+
 impl Image for MySqlImage {
     type Args = Vec<String>;
     type EnvVars = MySqlEnv;
@@ -33,32 +39,28 @@ impl Image for MySqlImage {
     }
 
     fn wait_until_ready<D: Docker>(&self, container: &Container<'_, D, Self>) {
-        let mut last_messages = vec![];
         let mut expected_messages = vec![
-            "MySQL init process done. Ready for start up",
+            "MySQL init process done",
             "/usr/sbin/mysqld: ready for connections",
-        ]
-        .into_iter()
-        .peekable();
+        ];
 
-        let mut stdout = container.logs().stdout;
-        for _ in 0..10 {
-            let expected_message = match expected_messages.peek() {
-                Some(expected_message) => expected_message,
-                None => return,
-            };
+        let Logs { stdout, stderr } = container.logs();
+        let stdout_lines = BufReader::new(stdout).lines();
+        let stderr_lines = BufReader::new(stderr).lines();
 
-            match stdout.as_mut().wait_for_message(expected_message) {
-                Err(WaitError::EndOfStream(messages)) => {
-                    last_messages = messages;
-                    stdout = container.logs().stderr;
-                }
-                Err(err @ WaitError::IO(_)) => Err(err).unwrap(),
-                Ok(()) => { expected_messages.next(); },
+        for line in stdout_lines.chain(stderr_lines) {
+            let line = line.unwrap();
+
+            expected_messages.retain(|expected_message|
+                !line.contains(expected_message)
+            );
+
+            if expected_messages.is_empty() {
+                return;
             }
         }
 
-        Err(WaitError::EndOfStream(last_messages)).unwrap()
+        panic!("Not found");
     }
 
     fn args(&self) -> Self::Args {
