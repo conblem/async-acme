@@ -1,4 +1,3 @@
-use reqwest::StatusCode;
 use serde::Deserialize;
 use testcontainers::images::generic::{GenericImage, WaitFor};
 use testcontainers::{clients, Container, Docker, RunArgs};
@@ -84,10 +83,7 @@ impl Client {
 
     pub async fn get_servers(&self) -> Result<Vec<Server>, Error> {
         let servers: Vec<ApiServer> = self.get("/servers").await?;
-        let servers = servers
-            .into_iter()
-            .map(|inner| Server { inner })
-            .collect();
+        let servers = servers.into_iter().map(|inner| Server { inner }).collect();
 
         Ok(servers)
     }

@@ -1,7 +1,9 @@
 use std::array::IntoIter;
 use std::collections::HashMap;
-use testcontainers::{clients, Container, Docker, Image, RunArgs, WaitForMessage};
+use std::io::{BufRead, BufReader, Read, Chain};
 use testcontainers::images::generic::GenericImage;
+use testcontainers::{clients, Container, Docker, Image, RunArgs, WaitError, WaitForMessage};
+use testcontainers::core::Logs;
 
 #[derive(Default)]
 pub struct MySqlEnv;
@@ -21,6 +23,11 @@ impl IntoIterator for MySqlEnv {
 #[derive(Default)]
 pub struct MySqlImage;
 
+fn logs<D: Docker>(container: &Container<'_, D, MySqlImage>) -> Chain<Box<dyn Read>, Box<dyn Read>> {
+    let Logs { stdout, stderr } = container.logs();
+    stdout.chain(stderr)
+}
+
 impl Image for MySqlImage {
     type Args = Vec<String>;
     type EnvVars = MySqlEnv;
@@ -32,9 +39,28 @@ impl Image for MySqlImage {
     }
 
     fn wait_until_ready<D: Docker>(&self, container: &Container<'_, D, Self>) {
-        std::thread::sleep(std::time::Duration::from_secs(20));
-        let stdout = container.logs().stdout;
-        stdout.wait_for_message("MySQL init process done. Ready for start up.").unwrap();
+        let mut expected_messages = vec![
+            "MySQL init process done",
+            "/usr/sbin/mysqld: ready for connections",
+        ];
+
+        let Logs { stdout, stderr } = container.logs();
+        let stdout_lines = BufReader::new(stdout).lines();
+        let stderr_lines = BufReader::new(stderr).lines();
+
+        for line in stdout_lines.chain(stderr_lines) {
+            let line = line.unwrap();
+
+            expected_messages.retain(|expected_message|
+                !line.contains(expected_message)
+            );
+
+            if expected_messages.is_empty() {
+                return;
+            }
+        }
+
+        panic!("Not found");
     }
 
     fn args(&self) -> Self::Args {
