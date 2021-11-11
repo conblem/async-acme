@@ -3,13 +3,6 @@ use testcontainers::images::generic::{GenericImage, WaitFor};
 use testcontainers::{clients, Container, Docker, RunArgs};
 
 #[derive(Deserialize, Debug, Clone)]
-#[serde(rename_all = "snake_case")]
-pub enum DaemonType {
-    Recursor,
-    Authoritative,
-}
-
-#[derive(Deserialize, Debug, Clone)]
 pub struct ApiServer {
     #[serde(rename = "type")]
     pub type_val: String,
@@ -22,17 +15,10 @@ pub struct ApiServer {
 }
 
 #[derive(Deserialize, Debug, Clone)]
-#[serde(rename_all = "snake_case")]
-pub enum ZoneType {
-    Zone,
-}
-
-#[derive(Deserialize, Serialize, Debug, Clone)]
-#[serde(rename_all = "snake_case")]
-pub enum ZoneKind {
-    Native,
-    Master,
-    Slave,
+#[serde(rename_all = "camelCase")]
+pub enum DaemonType {
+    Recursor,
+    Authoritative,
 }
 
 #[derive(Deserialize, Serialize, Debug, Clone)]
@@ -44,7 +30,9 @@ pub struct ApiZone {
     pub url: String,
     pub kind: ZoneKind,
     pub rrsets: Vec<()>,
+    #[serde(skip_serializing)]
     pub serial: u32,
+    #[serde(skip_serializing)]
     pub notified_serial: u32,
     pub edited_serial: u32,
     pub masters: Vec<String>,
@@ -61,6 +49,62 @@ pub struct ApiZone {
     pub nameservers: Vec<String>,
     pub master_tsgi_key_ids: Vec<String>,
     pub slave_tsig_key_ids: Vec<String>,
+}
+
+#[derive(Deserialize, Debug, Clone)]
+#[serde(rename_all = "PascalCase")]
+pub enum ZoneType {
+    Zone,
+}
+
+#[derive(Deserialize, Serialize, Debug, Clone)]
+#[serde(rename_all = "PascalCase")]
+pub enum ZoneKind {
+    Native,
+    Master,
+    Slave,
+}
+
+#[derive(Deserialize, Serialize, Debug, Clone)]
+#[serde(rename_all = "UPPERCASE")]
+pub enum RRSetType {
+    A,
+    PTR,
+    MX,
+}
+
+#[derive(Deserialize, Serialize, Debug, Clone)]
+#[serde(rename_all = "UPPERCASE")]
+pub enum RRSetChangeType {
+    REPLACE,
+    DELETE,
+}
+
+#[derive(Deserialize, Serialize, Debug, Clone)]
+pub struct RRSet {
+    pub name: String,
+    #[serde(rename = "type")]
+    pub type_val: RRSetType,
+    pub ttl: u32,
+    pub changetype: String,
+    pub records: Vec<ApiRecord>,
+    pub comments: Vec<ApiComment>,
+}
+
+#[derive(Deserialize, Serialize, Debug, Clone)]
+pub struct ApiRecord {
+    pub content: String,
+    pub disabled: bool,
+}
+
+#[derive(Deserialize, Serialize, Debug, Clone)]
+pub struct ApiComment {
+    pub content: String,
+    pub account: String,
+    // figure out the correct datatype for this
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(default)]
+    pub modified_at: Opton<u32>,
 }
 
 #[derive(Deserialize, Debug, Clone)]
