@@ -1,17 +1,14 @@
-use acme_core::{
-    AcmeServer, AcmeServerBuilder, AmceServerExt, ApiAccount, ApiIdentifier, ApiNewOrder, ApiOrder,
-    Payload, SignedRequest, Uri,
-};
+use acme_core::{AcmeServer, AcmeServerBuilder, AmceServerExt, ApiAccount, ApiIdentifier, ApiNewOrder, ApiOrder, Payload, SignedRequest, Uri, ApiIdentifierType};
 use hyper::client::HttpConnector;
 use serde::ser::SerializeStruct;
 use serde::{Serialize, Serializer};
+use std::borrow::Cow;
 use thiserror::Error;
 
 use crate::crypto::{
     Crypto, KeyPair, RingCrypto, RingCryptoError, RingKeyPair, RingPublicKey, Signer,
 };
 use crate::{HyperAcmeServer, HyperAcmeServerBuilder, HyperAcmeServerError};
-use std::borrow::Cow;
 
 type HttpsConnector = hyper_rustls::HttpsConnector<HttpConnector>;
 
@@ -189,7 +186,7 @@ impl<'a> Account<'a> {
 
     pub async fn new_order<T: AsRef<str>>(&self, domain: T) -> Result<Order<'_>, DirectoryError> {
         let identifier = ApiIdentifier {
-            type_field: "dns".to_string(),
+            type_field: ApiIdentifierType::DNS,
             value: domain.as_ref().to_string(),
         };
         let new_order = ApiNewOrder {

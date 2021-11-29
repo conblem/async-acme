@@ -1,5 +1,5 @@
 use http::uri::InvalidUri;
-use serde::de::{self, Visitor};
+use serde::de::{self, Visitor, Error};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use std::convert::{TryFrom, TryInto};
 use std::fmt;
@@ -215,11 +215,17 @@ pub enum ApiOrderStatus {
 }
 
 #[derive(Clone, Serialize, Deserialize, Debug)]
+#[serde(rename_all = "lowercase")]
+pub enum ApiIdentifierType {
+    DNS,
+}
+
+#[derive(Clone, Serialize, Deserialize, Debug)]
 #[serde(rename_all = "camelCase")]
 pub struct ApiIdentifier {
     #[serde(rename = "type")]
-    pub type_field: String,
-    pub value: String,
+    pub type_field: ApiIdentifierType,
+    pub value: String
 }
 
 #[derive(Clone, Serialize, Deserialize, Debug)]
@@ -249,6 +255,78 @@ pub struct ApiOrder<E> {
     pub finalize: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub certificate: Option<String>,
+}
+
+#[derive(Clone, Serialize, Deserialize, Debug)]
+#[serde(rename_all = "camelCase")]
+pub enum ApiAuthorizationStatus {
+    Pending,
+    Ready,
+    Processing,
+    Valid,
+    Invalid,
+}
+
+#[derive(Clone, Serialize, Deserialize, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct ApiAuthorizations {
+    pub identifier: ApiIdentifier,
+    pub status: ApiAuthorizationStatus,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub expires: Option<String>,
+    pub challenges: Vec<String>,
+    pub wildcard: bool,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub enum ApiChallengeType {
+    DNS,
+    TLS,
+    HTTP
+}
+
+impl Serialize for ApiChallengeType {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error> where S: Serializer {
+        match self {
+            Self::DNS => serializer.serialize_str("dns-01"),
+            Self::TLS => serializer.serialize_str("tls-alpn-01"),
+            Self::HTTP => serializer.serialize_str("http-01"),
+        }
+    }
+}
+
+impl <'de> Deserialize<'de> for ApiChallengeType {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error> where D: Deserializer<'de> {
+        let str = String::deserialize(deserializer)?;
+        match str.as_str() {
+            "dns-01" => Ok(Self::DNS),
+            "tls-alpn-01" => Ok(Self::TLS),
+            "http-01" => Ok(Self::HTTP),
+            _ => Err(D::Error::custom("invalid challenge type"))
+        }
+    }
+}
+
+#[derive(Clone, Serialize, Deserialize, Debug)]
+#[serde(rename_all = "camelCase")]
+pub enum ApiChallengeStatus {
+    Pending,
+    Processing,
+    Valid,
+    Invalid
+}
+
+#[derive(Clone, Serialize, Deserialize, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct ApiChallenge {
+    #[serde(rename="type")]
+    pub type_field: String,
+    pub url: String,
+    pub status: ApiChallengeStatus,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub validated: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub error: Option<ApiError>,
 }
 
 #[derive(Clone, Serialize, Deserialize, Debug)]
@@ -287,7 +365,7 @@ mod tests {
     }
 
     #[test]
-    fn deserialize_uri() {
+    fn serde_uri() {
         let uri = Uri::try_from("https://google.com/").unwrap();
         assert_tokens(&uri, &[Token::Str("https://google.com/")]);
         assert_tokens(&uri, &[Token::String("https://google.com/")]);
@@ -299,5 +377,12 @@ mod tests {
         let http_uri: http::Uri = (&uri).into();
 
         assert_eq!(uri.0, http_uri);
+    }
+
+    #[test]
+    fn serde_api_challenge_type() {
+        assert_tokens(&ApiChallengeType::DNS, &[Token::Str("dns-01")]);
+        assert_tokens(&ApiChallengeType::TLS, &[Token::Str("tls-alpn-01")]);
+        assert_tokens(&ApiChallengeType::HTTP, &[Token::Str("http-01")]);
     }
 }

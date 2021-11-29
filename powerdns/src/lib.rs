@@ -104,7 +104,7 @@ pub struct ApiComment {
     // figure out the correct datatype for this
     #[serde(skip_serializing_if = "Option::is_none")]
     #[serde(default)]
-    pub modified_at: Opton<u32>,
+    pub modified_at: Option<u32>,
 }
 
 #[derive(Deserialize, Debug, Clone)]
