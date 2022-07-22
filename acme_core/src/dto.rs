@@ -1,5 +1,5 @@
 use http::uri::InvalidUri;
-use serde::de::{self, Visitor, Error};
+use serde::de::{self, Error, Visitor};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use std::convert::{TryFrom, TryInto};
 use std::fmt;
@@ -225,7 +225,7 @@ pub enum ApiIdentifierType {
 pub struct ApiIdentifier {
     #[serde(rename = "type")]
     pub type_field: ApiIdentifierType,
-    pub value: String
+    pub value: String,
 }
 
 #[derive(Clone, Serialize, Deserialize, Debug)]
@@ -282,11 +282,14 @@ pub struct ApiAuthorizations {
 pub enum ApiChallengeType {
     DNS,
     TLS,
-    HTTP
+    HTTP,
 }
 
 impl Serialize for ApiChallengeType {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error> where S: Serializer {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
         match self {
             Self::DNS => serializer.serialize_str("dns-01"),
             Self::TLS => serializer.serialize_str("tls-alpn-01"),
@@ -295,14 +298,17 @@ impl Serialize for ApiChallengeType {
     }
 }
 
-impl <'de> Deserialize<'de> for ApiChallengeType {
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error> where D: Deserializer<'de> {
+impl<'de> Deserialize<'de> for ApiChallengeType {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
         let str = String::deserialize(deserializer)?;
         match str.as_str() {
             "dns-01" => Ok(Self::DNS),
             "tls-alpn-01" => Ok(Self::TLS),
             "http-01" => Ok(Self::HTTP),
-            _ => Err(D::Error::custom("invalid challenge type"))
+            _ => Err(D::Error::custom("invalid challenge type")),
         }
     }
 }
@@ -313,13 +319,13 @@ pub enum ApiChallengeStatus {
     Pending,
     Processing,
     Valid,
-    Invalid
+    Invalid,
 }
 
 #[derive(Clone, Serialize, Deserialize, Debug)]
 #[serde(rename_all = "camelCase")]
 pub struct ApiChallenge {
-    #[serde(rename="type")]
+    #[serde(rename = "type")]
     pub type_field: String,
     pub url: String,
     pub status: ApiChallengeStatus,

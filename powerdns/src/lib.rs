@@ -1,6 +1,8 @@
 use serde::{Deserialize, Serialize};
-use testcontainers::images::generic::{GenericImage, WaitFor};
-use testcontainers::{clients, Container, Docker, RunArgs};
+use testcontainers::images::generic::GenericImage;
+use testcontainers::{Container, RunnableImage};
+use testcontainers::core::WaitFor;
+use testcontainers::clients::Cli;
 
 #[derive(Deserialize, Debug, Clone)]
 pub struct ApiServer {
@@ -113,21 +115,23 @@ struct ApiError {
     errors: Vec<String>,
 }
 
-pub fn powerdns_container<T: ToString, M: Into<String>>(
-    docker: &clients::Cli,
+pub fn powerdns_container<T: Into<String>, M: Into<String>>(
+    docker: &Cli,
     name: T,
     mysql: M,
-) -> Container<'_, clients::Cli, GenericImage> {
+) -> Container<'_, GenericImage> {
     let wait_for = WaitFor::message_on_stderr("Creating backend connection for TCP");
 
-    let powerdns = GenericImage::new("powerdns:latest")
+    let powerdns = GenericImage::new("powerdns", "v4.4.1")
         .with_wait_for(wait_for)
         .with_env_var("MYSQL_HOST", mysql)
         .with_env_var("MYSQL_DB", "asyncacme");
 
-    let run_args = RunArgs::default().with_network("asyncacme").with_name(name);
+    let powerdns = RunnableImage::from(powerdns)
+        .with_network("asyncacme")
+        .with_container_name(name);
 
-    docker.run_with_args(powerdns, run_args)
+    docker.run(powerdns)
 }
 
 #[derive(Clone)]
@@ -212,10 +216,12 @@ mod tests {
 
     #[tokio::test]
     async fn works() -> Result<(), Error> {
-        let docker = clients::Cli::default();
+        let docker = Cli::default();
+
         let _mysql = mysql_container(&docker, "mysql-powerdns");
+
         let powerdns = powerdns_container(&docker, "powerdns", "mysql-powerdns");
-        let powerdns_port = powerdns.get_host_port(8081).ok_or("Port not found")?;
+        let powerdns_port = powerdns.get_host_port_ipv4(8081);
 
         let client = Client::new(format!("http://localhost:{}/api/v1", powerdns_port));
         let servers = client.get_servers().await?;

@@ -1,4 +1,7 @@
-use acme_core::{AcmeServer, AcmeServerBuilder, AmceServerExt, ApiAccount, ApiIdentifier, ApiNewOrder, ApiOrder, Payload, SignedRequest, Uri, ApiIdentifierType};
+use acme_core::{
+    AcmeServer, AcmeServerBuilder, AmceServerExt, ApiAccount, ApiIdentifier, ApiIdentifierType,
+    ApiNewOrder, ApiOrder, Payload, SignedRequest, Uri,
+};
 use hyper::client::HttpConnector;
 use serde::ser::SerializeStruct;
 use serde::{Serialize, Serializer};

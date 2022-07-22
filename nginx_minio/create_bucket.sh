@@ -1,6 +1,6 @@
-#!/bin/sh
+#!/bin/bash
 
-mc alias set minio http://minio:9000 minioadmin minioadmin
+mc alias set minio $HOST $USERNAME $PASSWORD
 mc mb minio/static
 mc policy set download minio/static
 

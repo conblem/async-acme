@@ -27,6 +27,6 @@ base64 = "0.13"
 
 [dev-dependencies]
 tokio = { version = "1", default-features = false, features = ["macros"]}
-testcontainers = "0.12"
+testcontainers = "0.14"
 rustls = { version = "0.19", features = ["dangerous_configuration"] }
 webpki = "0.21.0"

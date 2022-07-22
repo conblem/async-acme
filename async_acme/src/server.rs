@@ -284,15 +284,16 @@ mod tests {
     };
     use std::convert::TryFrom;
     use std::sync::Arc;
-    use testcontainers::images::generic::{GenericImage, WaitFor};
-    use testcontainers::{clients, Container, Docker, Image, RunArgs};
+    use testcontainers::core::WaitFor;
+    use testcontainers::images::generic::GenericImage;
+    use testcontainers::{clients, Container, Image, RunnableImage};
     use webpki::DNSNameRef;
 
     use mysql::mysql_container;
 
     use super::*;
 
-    fn small_step_container(docker: &clients::Cli) -> Container<'_, clients::Cli, GenericImage> {
+    fn small_step_container(docker: &clients::Cli) -> Container<'_, GenericImage> {
         let manifest_dir = env!("CARGO_MANIFEST_DIR");
         let from = format!("{}/smallstep/config", manifest_dir);
         let to = "/home/step/config/".to_string();
@@ -311,17 +312,16 @@ mod tests {
         // should be stdout container does weird stuff
         let wait_for = WaitFor::message_on_stderr("Serving HTTPS");
 
-        let smallstep = GenericImage::new("smallstep/step-ca:0.17.6")
+        let smallstep = GenericImage::new("smallstep/step-ca", "0.17.6")
             .with_volume(config.0, config.1)
             .with_volume(secrets.0, secrets.1)
-            .with_args(args)
             .with_wait_for(wait_for);
 
-        let smallstep_args = RunArgs::default()
+        let smallstep = RunnableImage::from((smallstep, args))
             .with_network("asyncacme")
             .with_mapped_port((31443, 443));
 
-        docker.run_with_args(smallstep, smallstep_args)
+        docker.run(smallstep)
     }
 
     struct InsecureServerVerifier;

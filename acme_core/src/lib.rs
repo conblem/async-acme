@@ -31,6 +31,7 @@ pub trait AcmeServer: Send + Sync {
     type Builder: AcmeServerBuilder<Server = Self>;
 
     async fn new_nonce(&self) -> Result<String, Self::Error>;
+
     fn directory(&self) -> &ApiDirectory;
 
     async fn new_account(
