@@ -1,3 +1,4 @@
+use std::borrow::Cow;
 use acme_core::{
     AcmeServer, AcmeServerBuilder, ApiAccount, ApiDirectory, ApiError, ApiNewOrder, ApiOrder,
     SignedRequest, Uri,
@@ -25,7 +26,13 @@ impl<C: HyperConnect + Clone + Debug + Send + Sync + 'static> Connect for C {}
 enum Endpoint {
     LetsEncryptStaging,
     LetsEncrypt,
-    Url(String),
+    Url(Cow<'static, str>),
+}
+
+impl <T> From<T> for Endpoint where T: Into<Cow<'static, str>> {
+    fn from(url: T) -> Self {
+        Endpoint::Url(url.into())
+    }
 }
 
 impl Endpoint {
@@ -35,7 +42,7 @@ impl Endpoint {
             Endpoint::LetsEncryptStaging => {
                 "https://acme-staging-v02.api.letsencrypt.org/directory"
             }
-            Endpoint::Url(endpoint) => endpoint.as_str(),
+            Endpoint::Url(endpoint) => endpoint.as_ref(),
         }
     }
 }
@@ -126,7 +133,7 @@ impl<C> HyperAcmeServerBuilder<C> {
     }
 
     pub(crate) fn url<T: ToString>(&mut self, url: T) -> &mut Self {
-        self.endpoint = Endpoint::Url(url.to_string());
+        self.endpoint = Endpoint::from(url.to_string());
         self
     }
 }
@@ -286,7 +293,7 @@ mod tests {
     use std::sync::Arc;
     use testcontainers::core::WaitFor;
     use testcontainers::images::generic::GenericImage;
-    use testcontainers::{clients, Container, Image, RunnableImage};
+    use testcontainers::{clients, Container, RunnableImage};
     use webpki::DNSNameRef;
 
     use mysql::mysql_container;
@@ -420,7 +427,7 @@ mod tests {
             Endpoint::LetsEncryptStaging.to_str()
         );
 
-        let endpoint = Endpoint::Url("https://test.com".to_string());
+        let endpoint = Endpoint::from("https://test.com");
         assert_eq!("https://test.com", endpoint.to_str())
     }
 }
