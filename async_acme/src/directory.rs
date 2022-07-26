@@ -6,6 +6,7 @@ use hyper::client::HttpConnector;
 use serde::ser::SerializeStruct;
 use serde::{Serialize, Serializer};
 use std::borrow::Cow;
+use hyper_rustls::HttpsConnectorBuilder;
 use thiserror::Error;
 
 use crate::crypto::{
@@ -34,7 +35,12 @@ pub struct Directory {
 // Factory Helpers
 impl Directory {
     fn base_builder() -> HyperAcmeServerBuilder<HttpsConnector> {
-        let connector = HttpsConnector::with_webpki_roots();
+        let connector = HttpsConnectorBuilder::new()
+            .with_webpki_roots()
+            .https_only()
+            .enable_http1()
+            .build();
+
         let mut builder = HyperAcmeServer::builder();
         builder.connector(connector);
 

@@ -1,8 +1,8 @@
 use serde::{Deserialize, Serialize};
+use testcontainers::clients::Cli;
+use testcontainers::core::WaitFor;
 use testcontainers::images::generic::GenericImage;
 use testcontainers::{Container, RunnableImage};
-use testcontainers::core::WaitFor;
-use testcontainers::clients::Cli;
 
 #[derive(Deserialize, Debug, Clone)]
 pub struct ApiServer {
