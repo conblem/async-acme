@@ -100,7 +100,7 @@ impl<C: Connect> AcmeServerBuilder for HyperAcmeServerBuilder<C> {
 
         let req = Request::get(self.endpoint.to_str()).body(Body::empty())?;
         let mut res = client.request(req).await?;
-        // does no length check if in the future we allow custom acme endpoints we should keep this in mind
+        // todo: does no length check if in the future we allow custom acme endpoints we should keep this in mind
         let body = body::to_bytes(res.body_mut()).await?;
 
         let directory = serde_json::from_slice(body.as_ref())?;
@@ -141,7 +141,7 @@ impl<C> HyperAcmeServerBuilder<C> {
     }
 }
 
-const APPLICATION_JOSE_JSON: HeaderValue = HeaderValue::from_static("application/jose+json");
+static APPLICATION_JOSE_JSON: HeaderValue = HeaderValue::from_static("application/jose+json");
 
 impl<C: Connect> HyperAcmeServer<C> {
     fn handle_if_error(
@@ -165,12 +165,12 @@ impl<C: Connect> HyperAcmeServer<C> {
             None => return Ok(None),
         };
 
-        let invalid_error = |location: HeaderValue| {
+        fn invalid_error(location: HeaderValue) -> Result<Option<Uri>, HyperAcmeServerError> {
             Err(HyperAcmeServerError::InvalidHeader(
                 LOCATION_HEADER,
                 Some(location),
             ))
-        };
+        }
         let location = match location_header.to_str() {
             Ok(location) => location.try_into(),
             Err(_) => return invalid_error(location_header),
@@ -195,9 +195,10 @@ impl<C: Connect> HyperAcmeServer<C> {
 
         let mut req = Request::post(uri).body(Body::from(body))?;
         req.headers_mut()
-            .append(CONTENT_TYPE, APPLICATION_JOSE_JSON);
+            .append(CONTENT_TYPE, APPLICATION_JOSE_JSON.clone());
 
         let mut res = self.client.request(req).await?;
+        // todo: also no length check here
         let body = body::to_bytes(res.body_mut()).await?;
         self.handle_if_error(&res, &body)?;
 
@@ -221,7 +222,7 @@ impl<C: Connect> AcmeServer for HyperAcmeServer<C> {
         let nonce = res
             .headers_mut()
             .remove(&self.replay_nonce_header)
-            .ok_or_else(|| HyperAcmeServerError::Nonce(None))?;
+            .ok_or(HyperAcmeServerError::Nonce(None))?;
 
         match nonce.to_str() {
             Ok(nonce) => Ok(nonce.to_owned()),
@@ -289,23 +290,21 @@ mod tests {
     use acme_core::AmceServerExt;
     use hyper::client::HttpConnector;
     use hyper_rustls::HttpsConnector;
-    use rustls::{
-        Certificate, ClientConfig, RootCertStore,
-    };
+    use rustls::{Certificate, ClientConfig, RootCertStore};
     use std::convert::TryFrom;
     use std::error::Error;
+    use testcontainers::clients::Cli;
     use testcontainers::core::WaitFor;
     use testcontainers::images::generic::GenericImage;
     use testcontainers::{Container, RunnableImage};
-    use testcontainers::clients::Cli;
 
-    use mysql::mysql_container;
+    use mysql::MySQL;
 
     use super::*;
 
     struct Smallstep<'a>(Container<'a, GenericImage>, String);
 
-    impl <'a> Smallstep<'a> {
+    impl<'a> Smallstep<'a> {
         fn run(docker: &'a Cli) -> Self {
             let manifest_dir = env!("CARGO_MANIFEST_DIR");
             let from = format!("{}/smallstep", manifest_dir);
@@ -336,12 +335,12 @@ mod tests {
             let mut endpoint = self.1.clone();
             endpoint.push_str(path);
 
-            return endpoint;
+            endpoint
         }
-
     }
 
-    fn connector() -> Result<HttpsConnector<HttpConnector>, Box<dyn Error + Send + Sync + 'static>> {
+    fn connector() -> Result<HttpsConnector<HttpConnector>, Box<dyn Error + Send + Sync + 'static>>
+    {
         let mut root_certs = RootCertStore::empty();
 
         let mut root_cert = include_bytes!("../smallstep/certs/root_ca.crt").as_ref();
@@ -363,7 +362,7 @@ mod tests {
     async fn containers() -> Result<(), Box<dyn Error + Send + Sync + 'static>> {
         let docker = Cli::default();
 
-        let _mysql = mysql_container(&docker, "mysql-stepca");
+        let _mysql = MySQL::run(&docker, "mysql-stepca");
         let smallstep = Smallstep::run(&docker);
 
         let server = HyperAcmeServer::builder()
@@ -393,18 +392,12 @@ mod tests {
         } = server.directory;
 
         // test if directory returns correct url
-        assert_eq!(
-            new_nonce,
-            Uri::try_from(smallstep.endpoint("/new-nonce"))?
-        );
+        assert_eq!(new_nonce, Uri::try_from(smallstep.endpoint("/new-nonce"))?);
         assert_eq!(
             new_account,
             Uri::try_from(smallstep.endpoint("/new-account"))?
         );
-        assert_eq!(
-            new_order,
-            Uri::try_from(smallstep.endpoint("/new-order"))?
-        );
+        assert_eq!(new_order, Uri::try_from(smallstep.endpoint("/new-order"))?);
         assert_eq!(new_authz, None);
         assert_eq!(
             revoke_cert,

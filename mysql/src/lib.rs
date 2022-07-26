@@ -4,22 +4,35 @@ use testcontainers::core::WaitFor;
 use testcontainers::images::generic::GenericImage;
 use testcontainers::{Container, RunnableImage};
 
-pub fn mysql_container<T: Into<String>>(docker: &Cli, name: T) -> Container<'_, GenericImage> {
-    let wait_for = WaitFor::message_on_stdout("MySQL init process done. Ready for start up.");
-    let mysql = GenericImage::new("mysql", "8.0.29")
-        .with_env_var("MYSQL_ROOT_PASSWORD", "root")
-        .with_env_var("MYSQL_DATABASE", "asyncacme")
-        .with_wait_for(wait_for);
+pub struct MySQL<'a>(Container<'a, GenericImage>, String);
 
-    let mysql = RunnableImage::from(mysql)
-        .with_network("asyncacme")
-        .with_container_name(name);
+impl<'a> MySQL<'a> {
+    pub fn run<T: Into<String>>(docker: &'a Cli, name: T) -> Self {
+        let wait_for = WaitFor::message_on_stdout("MySQL init process done. Ready for start up.");
+        let mysql = GenericImage::new("mysql", "8.0.29")
+            .with_env_var("MYSQL_ROOT_PASSWORD", "root")
+            .with_env_var("MYSQL_DATABASE", "asyncacme")
+            .with_wait_for(wait_for);
 
-    let mysql = docker.run(mysql);
+        let mysql = RunnableImage::from(mysql)
+            .with_network("asyncacme")
+            .with_container_name(name);
 
-    std::thread::sleep(Duration::from_secs(5));
+        let mysql = docker.run(mysql);
 
-    mysql
+        std::thread::sleep(Duration::from_secs(5));
+
+        let port = mysql.get_host_port_ipv4(3306);
+
+        MySQL(
+            mysql,
+            format!("mysql://root:root@localhost:{}/asyncacme", port),
+        )
+    }
+
+    pub fn connection_string(&self) -> &str {
+        &self.1
+    }
 }
 
 #[cfg(test)]
@@ -32,11 +45,9 @@ mod tests {
     #[tokio::test]
     async fn it_works() -> Result<(), Box<dyn Error + Send + Sync + 'static>> {
         let docker = Cli::default();
-        let mysql = mysql_container(&docker, "mysql");
-        let mysql_port = mysql.get_host_port_ipv4(3306);
+        let mysql = MySQL::run(&docker, "mysql");
 
-        let uri = format!("mysql://root:root@localhost:{}/asyncacme", mysql_port);
-        let pool = MySqlPool::connect(&uri).await?;
+        let pool = MySqlPool::connect(mysql.connection_string()).await?;
 
         let (res,): (i64,) = sqlx::query_as("SELECT 1 + 1").fetch_one(&pool).await?;
         assert_eq!(res, 2);
