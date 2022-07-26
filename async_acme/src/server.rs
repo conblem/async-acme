@@ -291,6 +291,7 @@ mod tests {
     };
     use std::convert::TryFrom;
     use std::sync::Arc;
+    use std::time::Duration;
     use testcontainers::core::WaitFor;
     use testcontainers::images::generic::GenericImage;
     use testcontainers::{clients, Container, RunnableImage};
@@ -302,31 +303,25 @@ mod tests {
 
     fn small_step_container(docker: &clients::Cli) -> Container<'_, GenericImage> {
         let manifest_dir = env!("CARGO_MANIFEST_DIR");
-        let from = format!("{}/smallstep/config", manifest_dir);
-        let to = "/home/step/config/".to_string();
-        let config = (from, to);
-
-        let from = format!("{}/smallstep/secrets", manifest_dir);
-        let to = "/home/step/secrets/".to_string();
-        let secrets = (from, to);
+        let from = format!("{}/smallstep", manifest_dir);
+        let to = "/home/step/".to_string();
 
         let args = vec![
             "/bin/sh".to_string(),
             "-c".to_string(),
-            "exec /usr/local/bin/step-ca /home/step/config/ca.json --issuer-password-file /home/step/secrets/password".to_string(),
+            "exec /usr/local/bin/step-ca /home/step/config/ca.json".to_string(),
         ];
 
         // should be stdout container does weird stuff
         let wait_for = WaitFor::message_on_stderr("Serving HTTPS");
 
         let smallstep = GenericImage::new("smallstep/step-ca", "0.17.6")
-            .with_volume(config.0, config.1)
-            .with_volume(secrets.0, secrets.1)
+            .with_volume(from, to)
+            .with_exposed_port(9000)
             .with_wait_for(wait_for);
 
         let smallstep = RunnableImage::from((smallstep, args))
-            .with_network("asyncacme")
-            .with_mapped_port((31443, 443));
+            .with_network("asyncacme");
 
         docker.run(smallstep)
     }
@@ -362,10 +357,13 @@ mod tests {
         let docker = clients::Cli::default();
 
         let _mysql = mysql_container(&docker, "mysql-stepca");
-        let _smallstep = small_step_container(&docker);
+        let smallstep = small_step_container(&docker);
+        //tokio::time::sleep(Duration::from_secs(20)).await;
 
+        let port = smallstep.get_host_port_ipv4(9000);
+        let base_url = format!("https://localhost:{}/acme/acme", port);
         let server = HyperAcmeServer::builder()
-            .url("https://localhost:31443/acme/acme/directory")
+            .url(format!("{}/directory", base_url))
             .connector(unsecure_connector())
             .build()
             .await
@@ -394,24 +392,24 @@ mod tests {
         // test if directory returns correct url
         assert_eq!(
             new_nonce,
-            Uri::try_from("https://localhost:31443/acme/acme/new-nonce").unwrap()
+            Uri::try_from(format!("{}/new-nonce", base_url)).unwrap()
         );
         assert_eq!(
             new_account,
-            Uri::try_from("https://localhost:31443/acme/acme/new-account").unwrap()
+            Uri::try_from(format!("{}/new-account", base_url)).unwrap()
         );
         assert_eq!(
             new_order,
-            Uri::try_from("https://localhost:31443/acme/acme/new-order").unwrap()
+            Uri::try_from(format!("{}/new-order", base_url)).unwrap()
         );
         assert_eq!(new_authz, None);
         assert_eq!(
             revoke_cert,
-            Uri::try_from("https://localhost:31443/acme/acme/revoke-cert").unwrap()
+            Uri::try_from(format!("{}/revoke-cert", base_url)).unwrap()
         );
         assert_eq!(
             key_change,
-            Uri::try_from("https://localhost:31443/acme/acme/key-change").unwrap()
+            Uri::try_from(format!("{}/key-change", base_url)).unwrap()
         );
         assert_eq!(meta, None);
     }
