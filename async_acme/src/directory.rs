@@ -3,10 +3,10 @@ use acme_core::{
     ApiNewOrder, ApiOrder, Payload, SignedRequest, Uri,
 };
 use hyper::client::HttpConnector;
+use hyper_rustls::HttpsConnectorBuilder;
 use serde::ser::SerializeStruct;
 use serde::{Serialize, Serializer};
 use std::borrow::Cow;
-use hyper_rustls::HttpsConnectorBuilder;
 use thiserror::Error;
 
 use crate::crypto::{
@@ -154,7 +154,7 @@ impl Directory {
         let (account, kid) = self.server.new_account(signed).await?;
 
         Ok(Account {
-            directory: Cow::Borrowed(&self),
+            directory: Cow::Borrowed(self),
             inner: account,
             kid,
             key_pair,
@@ -204,18 +204,18 @@ impl<'a> Account<'a> {
             not_before: None,
         };
 
-        let uri = &self.directory.server.directory().new_order;
-        let protected = self
-            .directory
-            .protect(uri, &self.key_pair, &self.kid)
-            .await?;
+        let directory = &self.directory;
+        let server = &directory.server;
 
-        let new_order = self.directory.serialize_and_base64_encode(&new_order)?;
-        let signed = self.directory.sign(&self.key_pair, protected, new_order)?;
+        let uri = &server.directory().new_order;
+        let protected = directory.protect(uri, &self.key_pair, &self.kid).await?;
 
-        let (order, location) = self.directory.server.new_order(signed).await?;
+        let new_order = directory.serialize_and_base64_encode(&new_order)?;
+        let signed = directory.sign(&self.key_pair, protected, new_order)?;
+
+        let (order, location) = server.new_order(signed).await?;
         Ok(Order {
-            account: &self,
+            account: self,
             inner: order,
             location,
         })
@@ -232,21 +232,14 @@ pub struct Order<'a> {
 impl<'a> Order<'a> {
     pub async fn update(&mut self) -> Result<&mut Order<'a>, DirectoryError> {
         let account = self.account;
+        let directory = &account.directory;
 
-        let protected = account
-            .directory
+        let protected = directory
             .protect(&self.location, &account.key_pair, &account.kid)
             .await?;
-        let signed: SignedRequest<()> =
-            self.account
-                .directory
-                .sign(&account.key_pair, protected, None)?;
+        let signed: SignedRequest<()> = directory.sign(&account.key_pair, protected, None)?;
 
-        let order = account
-            .directory
-            .server
-            .get_order(&self.location, signed)
-            .await?;
+        let order = directory.server.get_order(&self.location, signed).await?;
         self.inner = order;
         Ok(self)
     }
@@ -299,6 +292,8 @@ mod tests {
         let account = directory.new_account("test@test.com").await?;
         let mut order = account.new_order("example.com").await?;
         order.update().await?;
-        panic!("{:?}", order)
+
+        //panic!("{:?}", order)
+        Ok(())
     }
 }

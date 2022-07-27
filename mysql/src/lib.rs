@@ -7,7 +7,7 @@ use testcontainers::{Container, RunnableImage};
 pub struct MySQL<'a>(Container<'a, GenericImage>, String);
 
 impl<'a> MySQL<'a> {
-    pub fn run<T: Into<String>>(docker: &'a Cli, name: T) -> Self {
+    pub fn run(docker: &'a Cli, network: &str) -> Self {
         let wait_for = WaitFor::message_on_stdout("MySQL init process done. Ready for start up.");
         let mysql = GenericImage::new("mysql", "8.0.29")
             .with_env_var("MYSQL_ROOT_PASSWORD", "root")
@@ -15,8 +15,8 @@ impl<'a> MySQL<'a> {
             .with_wait_for(wait_for);
 
         let mysql = RunnableImage::from(mysql)
-            .with_network("asyncacme")
-            .with_container_name(name);
+            .with_container_name("mysql")
+            .with_network(network);
 
         let mysql = docker.run(mysql);
 

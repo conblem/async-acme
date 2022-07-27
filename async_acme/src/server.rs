@@ -100,6 +100,7 @@ impl<C: Connect> AcmeServerBuilder for HyperAcmeServerBuilder<C> {
 
         let req = Request::get(self.endpoint.to_str()).body(Body::empty())?;
         let mut res = client.request(req).await?;
+        // todo: add error handling
         // todo: does no length check if in the future we allow custom acme endpoints we should keep this in mind
         let body = body::to_bytes(res.body_mut()).await?;
 
@@ -135,8 +136,8 @@ impl<C> HyperAcmeServerBuilder<C> {
         self
     }
 
-    pub(crate) fn url<T: ToString>(&mut self, url: T) -> &mut Self {
-        self.endpoint = Endpoint::from(url.to_string());
+    pub(crate) fn url<T: Into<Cow<'static, str>>>(&mut self, url: T) -> &mut Self {
+        self.endpoint = Endpoint::from(url);
         self
     }
 }
@@ -305,7 +306,7 @@ mod tests {
     struct Smallstep<'a>(Container<'a, GenericImage>, String);
 
     impl<'a> Smallstep<'a> {
-        fn run(docker: &'a Cli) -> Self {
+        fn run(docker: &'a Cli, network: &str) -> Self {
             let manifest_dir = env!("CARGO_MANIFEST_DIR");
             let from = format!("{}/smallstep", manifest_dir);
             let to = "/home/step/".to_string();
@@ -324,7 +325,7 @@ mod tests {
                 .with_exposed_port(9000)
                 .with_wait_for(wait_for);
 
-            let smallstep = RunnableImage::from((smallstep, args)).with_network("asyncacme");
+            let smallstep = RunnableImage::from((smallstep, args)).with_network(network);
             let smallstep = docker.run(smallstep);
             let port = smallstep.get_host_port_ipv4(9000);
 
@@ -362,8 +363,8 @@ mod tests {
     async fn containers() -> Result<(), Box<dyn Error + Send + Sync + 'static>> {
         let docker = Cli::default();
 
-        let _mysql = MySQL::run(&docker, "mysql-stepca");
-        let smallstep = Smallstep::run(&docker);
+        let _mysql = MySQL::run(&docker, "directory-tests");
+        let smallstep = Smallstep::run(&docker, "directory-tests");
 
         let server = HyperAcmeServer::builder()
             .url(smallstep.endpoint("/directory"))
