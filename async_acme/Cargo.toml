@@ -3,12 +3,9 @@ name = "async_acme"
 version = "0.1.0"
 edition = "2018"
 
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
-
 [dependencies]
 acme_core = { path = "../acme_core" }
 nginx_minio = { path = "../nginx_minio" }
-mysql = { path = "../mysql" }
 
 # figure out if we use parkin lot anyway so we can use it as dependency
 tokio = { version = "1", default-features = false, features = ["rt-multi-thread", "net", "parking_lot"]}
@@ -21,7 +18,7 @@ rustls = { version = "0.20" }
 ring = { version = "0.16"}
 serde_json = { version = "1" }
 thiserror = "1"
-parking_lot = "0.11"
+parking_lot = "0.12"
 serde = "1"
 base64 = "0.13"
 
@@ -29,4 +26,5 @@ base64 = "0.13"
 tokio = { version = "1", default-features = false, features = ["macros"]}
 rustls-pemfile = "1"
 testcontainers = "0.14"
-webpki = "0.21.0"
+stepca = { path = "../stepca" }
+mysql = { path = "../mysql" }

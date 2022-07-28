@@ -1,0 +1,11 @@
+[package]
+name = "stepca"
+version = "0.1.0"
+edition = "2018"
+
+[dependencies]
+testcontainers = "0.14"
+hyper-rustls = { version = "0.23", default-features = false, features = ["webpki-tokio", "http1"] }
+rustls-pemfile = "1"
+hyper = { version = "0.14", default-features = false, features = ["client", "http1", "http2", "runtime"]}
+rustls = { version = "0.20" }

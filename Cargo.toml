@@ -5,5 +5,6 @@ members = [
     "async_acme",
     "nginx_minio",
     "powerdns",
-    "mysql"
+    "mysql",
+    "stepca"
 ]

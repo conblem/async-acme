@@ -285,10 +285,19 @@ impl Serialize for AccountKey<'_> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use testcontainers::clients::Cli;
+
+    use mysql::MySQL;
+    use stepca::Stepca;
 
     #[tokio::test]
     async fn test() -> Result<(), DirectoryError> {
-        let directory = Directory::from_le_staging().await?;
+        let docker = Cli::default();
+        // todo: rename docker network because its the same as the other;
+        let _mysql = MySQL::run(&docker, "directory");
+        let stepca = Stepca::run(&docker, "directory");
+
+        let directory = Directory::from_url(stepca.endpoint("/directory")).await?;
         let account = directory.new_account("test@test.com").await?;
         let mut order = account.new_order("example.com").await?;
         order.update().await?;
