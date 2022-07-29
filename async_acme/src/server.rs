@@ -50,6 +50,7 @@ impl Endpoint {
     }
 }
 
+// todo: retain this error somehow for dyn AcmeServer
 #[derive(Debug, Error)]
 pub enum HyperAcmeServerError {
     #[error("No connector configured")]

@@ -1,16 +1,11 @@
-use hyper::client::connect::Connect as HyperConnect;
 use hyper::client::HttpConnector;
 use hyper_rustls::HttpsConnector;
 use rustls::{Certificate, ClientConfig, RootCertStore};
 use std::error::Error;
-use std::fmt::Debug;
 use testcontainers::clients::Cli;
 use testcontainers::core::WaitFor;
 use testcontainers::images::generic::GenericImage;
 use testcontainers::{Container, RunnableImage};
-
-pub trait Connect: HyperConnect + Clone + Debug + Send + Sync + 'static {}
-impl<C: HyperConnect + Clone + Debug + Send + Sync + 'static> Connect for C {}
 
 pub struct Stepca<'a>(Container<'a, GenericImage>, String);
 
@@ -48,7 +43,9 @@ impl<'a> Stepca<'a> {
         endpoint
     }
 
-    pub fn connector(&self) -> Result<impl Connect, Box<dyn Error + Send + Sync + 'static>> {
+    pub fn connector(
+        &self,
+    ) -> Result<HttpsConnector<HttpConnector>, Box<dyn Error + Send + Sync + 'static>> {
         let mut root_certs = RootCertStore::empty();
 
         let mut root_cert = include_bytes!("../smallstep/certs/root_ca.crt").as_ref();

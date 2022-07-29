@@ -1,40 +1,59 @@
 use acme_core::{
     AcmeServer, AcmeServerBuilder, AmceServerExt, ApiAccount, ApiIdentifier, ApiIdentifierType,
-    ApiNewOrder, ApiOrder, Payload, SignedRequest, Uri,
+    ApiNewOrder, ApiOrder, DynAcmeServer, Payload, SignedRequest, Uri,
 };
 use hyper::client::HttpConnector;
 use hyper_rustls::HttpsConnectorBuilder;
 use serde::ser::SerializeStruct;
 use serde::{Serialize, Serializer};
 use std::borrow::Cow;
+use std::error::Error;
+use std::fmt::Debug;
+use std::marker::PhantomData;
 use thiserror::Error;
 
 use crate::crypto::{
     Crypto, KeyPair, RingCrypto, RingCryptoError, RingKeyPair, RingPublicKey, Signer,
 };
-use crate::{HyperAcmeServer, HyperAcmeServerBuilder, HyperAcmeServerError};
+use crate::{HyperAcmeServer, HyperAcmeServerBuilder};
 
 type HttpsConnector = hyper_rustls::HttpsConnector<HttpConnector>;
 
-#[derive(Debug, Error)]
-pub enum DirectoryError {
-    #[error(transparent)]
-    HyperAcmeServerError(#[from] HyperAcmeServerError),
-    #[error(transparent)]
-    RingCryptoError(#[from] RingCryptoError),
-    #[error(transparent)]
-    JsonError(#[from] serde_json::Error),
+mod private {
+    use super::*;
+
+    pub trait Sealed {}
+    impl Sealed for NeedsServer {}
+    impl Sealed for NeedsEndpoint {}
+    impl Sealed for Finished {}
 }
 
-#[derive(Debug, Clone)]
-pub struct Directory {
-    server: HyperAcmeServer<HttpsConnector>,
-    crypto: RingCrypto,
+pub trait DirectoryBuilderConfigState: private::Sealed {}
+
+pub struct Finished;
+impl DirectoryBuilderConfigState for Finished {}
+
+pub struct NeedsServer;
+impl DirectoryBuilderConfigState for NeedsServer {}
+
+pub struct NeedsEndpoint;
+impl DirectoryBuilderConfigState for NeedsEndpoint {}
+
+#[derive(Default)]
+pub struct DirectoryBuilder<T: DirectoryBuilderConfigState, S = ()> {
+    state: PhantomData<T>,
+    builder: Option<S>,
 }
 
-// Factory Helpers
-impl Directory {
-    fn base_builder() -> HyperAcmeServerBuilder<HttpsConnector> {
+impl DirectoryBuilder<NeedsServer, ()> {
+    fn server<S: AcmeServerBuilder>(self, builder: S) -> DirectoryBuilder<NeedsEndpoint, S> {
+        DirectoryBuilder {
+            state: PhantomData,
+            builder: Some(builder),
+        }
+    }
+
+    fn default(self) -> DirectoryBuilder<NeedsEndpoint, HyperAcmeServerBuilder<HttpsConnector>> {
         let connector = HttpsConnectorBuilder::new()
             .with_webpki_roots()
             .https_only()
@@ -44,17 +63,74 @@ impl Directory {
         let mut builder = HyperAcmeServer::builder();
         builder.connector(connector);
 
-        builder
+        DirectoryBuilder {
+            state: PhantomData,
+            builder: Some(builder),
+        }
+    }
+}
+
+impl<C> DirectoryBuilder<NeedsEndpoint, HyperAcmeServerBuilder<C>> {
+    fn url<T: Into<Cow<'static, str>>>(
+        mut self,
+        url: T,
+    ) -> DirectoryBuilder<Finished, HyperAcmeServerBuilder<C>> {
+        if let Some(builder) = &mut self.builder {
+            builder.url(url);
+        }
+        DirectoryBuilder {
+            state: PhantomData,
+            builder: self.builder,
+        }
     }
 
-    async fn finish(
-        mut builder: HyperAcmeServerBuilder<HttpsConnector>,
-    ) -> Result<Self, DirectoryError> {
-        let server = builder.build().await?;
-        let crypto = RingCrypto::new();
-
-        Ok(Self { server, crypto })
+    fn le_staging(mut self) -> DirectoryBuilder<Finished, HyperAcmeServerBuilder<C>> {
+        if let Some(builder) = &mut self.builder {
+            builder.le_staging();
+        }
+        DirectoryBuilder {
+            state: PhantomData,
+            builder: self.builder,
+        }
     }
+}
+
+impl<S: AcmeServerBuilder> DirectoryBuilder<NeedsEndpoint, S> {
+    fn default(self) -> DirectoryBuilder<Finished, S> {
+        DirectoryBuilder {
+            state: PhantomData,
+            builder: self.builder,
+        }
+    }
+}
+
+impl<S: AcmeServerBuilder> DirectoryBuilder<Finished, S>
+where
+    S::Server: Clone + Debug,
+{
+    async fn build(self) -> Result<Directory, <S::Server as AcmeServer>::Error> {
+        let server = self.builder.unwrap().build().await?;
+        Ok(Directory {
+            crypto: RingCrypto::new(),
+            server: Box::new(server),
+        })
+    }
+}
+
+#[derive(Debug, Error)]
+pub enum DirectoryError {
+    #[error(transparent)]
+    ServerError(#[from] Box<dyn Error + Send + Sync + 'static>),
+    #[error(transparent)]
+    RingCryptoError(#[from] RingCryptoError),
+    #[error(transparent)]
+    JsonError(#[from] serde_json::Error),
+}
+
+#[derive(Debug, Clone)]
+pub struct Directory {
+    server: Box<dyn DynAcmeServer>,
+    crypto: RingCrypto,
 }
 
 impl Directory {
@@ -124,21 +200,11 @@ impl Directory {
 }
 
 impl Directory {
-    pub async fn from_le_staging() -> Result<Self, DirectoryError> {
-        let mut builder = Self::base_builder();
-        builder.le_staging();
-        Self::finish(builder).await
-    }
-
-    pub async fn from_le() -> Result<Self, DirectoryError> {
-        let builder = Self::base_builder();
-        Self::finish(builder).await
-    }
-
-    pub async fn from_url(url: String) -> Result<Self, DirectoryError> {
-        let mut builder = Self::base_builder();
-        builder.url(url);
-        Self::finish(builder).await
+    pub fn builder() -> DirectoryBuilder<NeedsServer> {
+        DirectoryBuilder {
+            state: PhantomData,
+            builder: None,
+        }
     }
 
     pub async fn new_account<T: AsRef<str>>(&self, mail: T) -> Result<Account<'_>, DirectoryError> {
@@ -291,13 +357,22 @@ mod tests {
     use stepca::Stepca;
 
     #[tokio::test]
-    async fn test() -> Result<(), DirectoryError> {
+    async fn test() -> Result<(), Box<dyn Error + Send + Sync + 'static>> {
         let docker = Cli::default();
         // todo: rename docker network because its the same as the other;
         let _mysql = MySQL::run(&docker, "directory");
         let stepca = Stepca::run(&docker, "directory");
 
-        let directory = Directory::from_url(stepca.endpoint("/directory")).await?;
+        let mut server_builder = HyperAcmeServer::builder();
+        server_builder
+            .url(stepca.endpoint("/directory"))
+            .connector(stepca.connector()?);
+
+        let directory = Directory::builder()
+            .server(server_builder)
+            .default()
+            .build()
+            .await?;
         let account = directory.new_account("test@test.com").await?;
         let mut order = account.new_order("example.com").await?;
         order.update().await?;
