@@ -1,6 +1,6 @@
 use acme_core::{
     AcmeServer, AcmeServerBuilder, AmceServerExt, ApiAccount, ApiIdentifier, ApiIdentifierType,
-    ApiNewOrder, ApiOrder, DynAcmeServer, Payload, SignedRequest, Uri,
+    ApiNewOrder, ApiOrder, DynAcmeServer, ErrorWrapper, Payload, SignedRequest, Uri,
 };
 use hyper::client::HttpConnector;
 use hyper_rustls::HttpsConnectorBuilder;
@@ -46,14 +46,16 @@ pub struct DirectoryBuilder<T: DirectoryBuilderConfigState, S = ()> {
 }
 
 impl DirectoryBuilder<NeedsServer, ()> {
-    fn server<S: AcmeServerBuilder>(self, builder: S) -> DirectoryBuilder<NeedsEndpoint, S> {
+    pub fn server<S: AcmeServerBuilder>(self, builder: S) -> DirectoryBuilder<NeedsEndpoint, S> {
         DirectoryBuilder {
             state: PhantomData,
             builder: Some(builder),
         }
     }
 
-    fn default(self) -> DirectoryBuilder<NeedsEndpoint, HyperAcmeServerBuilder<HttpsConnector>> {
+    pub fn default(
+        self,
+    ) -> DirectoryBuilder<NeedsEndpoint, HyperAcmeServerBuilder<HttpsConnector>> {
         let connector = HttpsConnectorBuilder::new()
             .with_webpki_roots()
             .https_only()
@@ -71,7 +73,7 @@ impl DirectoryBuilder<NeedsServer, ()> {
 }
 
 impl<C> DirectoryBuilder<NeedsEndpoint, HyperAcmeServerBuilder<C>> {
-    fn url<T: Into<Cow<'static, str>>>(
+    pub fn url<T: Into<Cow<'static, str>>>(
         mut self,
         url: T,
     ) -> DirectoryBuilder<Finished, HyperAcmeServerBuilder<C>> {
@@ -84,7 +86,7 @@ impl<C> DirectoryBuilder<NeedsEndpoint, HyperAcmeServerBuilder<C>> {
         }
     }
 
-    fn le_staging(mut self) -> DirectoryBuilder<Finished, HyperAcmeServerBuilder<C>> {
+    pub fn le_staging(mut self) -> DirectoryBuilder<Finished, HyperAcmeServerBuilder<C>> {
         if let Some(builder) = &mut self.builder {
             builder.le_staging();
         }
@@ -96,7 +98,7 @@ impl<C> DirectoryBuilder<NeedsEndpoint, HyperAcmeServerBuilder<C>> {
 }
 
 impl<S: AcmeServerBuilder> DirectoryBuilder<NeedsEndpoint, S> {
-    fn default(self) -> DirectoryBuilder<Finished, S> {
+    pub fn default(self) -> DirectoryBuilder<Finished, S> {
         DirectoryBuilder {
             state: PhantomData,
             builder: self.builder,
@@ -120,7 +122,7 @@ where
 #[derive(Debug, Error)]
 pub enum DirectoryError {
     #[error(transparent)]
-    ServerError(#[from] Box<dyn Error + Send + Sync + 'static>),
+    ServerError(#[from] ErrorWrapper),
     #[error(transparent)]
     RingCryptoError(#[from] RingCryptoError),
     #[error(transparent)]
