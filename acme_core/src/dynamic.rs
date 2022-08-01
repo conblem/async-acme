@@ -4,13 +4,38 @@ use crate::{
 };
 use async_trait::async_trait;
 use std::any::Any;
-use std::convert::Infallible;
 use std::error::Error;
 use std::fmt;
 use std::fmt::{Debug, Display, Formatter};
-use std::ops::Deref;
+use std::ops::{Deref, DerefMut};
 
 type DynError = Box<dyn Error + Send + Sync + 'static>;
+
+pub struct ErrorWrapper(pub DynError);
+
+impl Display for ErrorWrapper {
+    fn fmt(&self, f: &mut Formatter) -> fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
+
+impl Debug for ErrorWrapper {
+    fn fmt(&self, f: &mut Formatter) -> fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
+
+impl Error for ErrorWrapper {
+    fn source(&self) -> Option<&(dyn Error + 'static)> {
+        self.0.source()
+    }
+}
+
+impl From<DynError> for ErrorWrapper {
+    fn from(inner: DynError) -> Self {
+        Self(inner)
+    }
+}
 
 use private::{Sealed, SealedImpl};
 mod private {
@@ -20,17 +45,49 @@ mod private {
 }
 
 #[async_trait]
+pub trait DynAcmeServerBuilder: Send + Sync + 'static {
+    #[doc(hidden)]
+    async fn build_dyn(&mut self, _: &dyn Sealed) -> Result<Box<dyn DynAcmeServer>, ErrorWrapper>;
+}
+
+#[async_trait]
+impl<T: AcmeServerBuilder> DynAcmeServerBuilder for T
+where
+    T::Server: Clone + Debug,
+{
+    async fn build_dyn(&mut self, _: &dyn Sealed) -> Result<Box<dyn DynAcmeServer>, ErrorWrapper> {
+        match self.build().await {
+            Ok(server) => Ok(Box::new(server)),
+            Err(err) => Err(ErrorWrapper(err.into())),
+        }
+    }
+}
+
+#[async_trait]
+impl AcmeServerBuilder for Box<dyn DynAcmeServerBuilder> {
+    type Server = Box<dyn DynAcmeServer>;
+
+    async fn build(&mut self) -> Result<Self::Server, <Self::Server as AcmeServer>::Error> {
+        self.deref_mut().build_dyn(&SealedImpl).await
+    }
+}
+
+#[async_trait]
 pub trait DynAcmeServer: Send + Sync + 'static {
+    #[doc(hidden)]
     async fn new_nonce_dyn(&self, sealed: &dyn Sealed) -> Result<String, DynError>;
 
+    #[doc(hidden)]
     fn directory_dyn(&self, sealed: &dyn Sealed) -> &ApiDirectory;
 
+    #[doc(hidden)]
     async fn new_account_dyn(
         &self,
         req: SignedRequest<ApiAccount<()>>,
         _: &dyn Sealed,
     ) -> Result<(ApiAccount<()>, Uri), DynError>;
 
+    #[doc(hidden)]
     async fn get_account_dyn(
         &self,
         uri: &Uri,
@@ -38,12 +95,14 @@ pub trait DynAcmeServer: Send + Sync + 'static {
         _: &dyn Sealed,
     ) -> Result<ApiAccount<()>, DynError>;
 
+    #[doc(hidden)]
     async fn new_order_dyn(
         &self,
         req: SignedRequest<ApiNewOrder>,
         _: &dyn Sealed,
     ) -> Result<(ApiOrder<()>, Uri), DynError>;
 
+    #[doc(hidden)]
     async fn get_order_dyn(
         &self,
         uri: &Uri,
@@ -51,12 +110,15 @@ pub trait DynAcmeServer: Send + Sync + 'static {
         _: &dyn Sealed,
     ) -> Result<ApiOrder<()>, DynError>;
 
+    #[doc(hidden)]
     async fn finalize_dyn(&self, _: &dyn Sealed) -> Result<(), DynError>;
 
+    #[doc(hidden)]
     fn box_clone(&self, _: &dyn Sealed) -> Box<dyn DynAcmeServer>;
 
     fn as_any(&self) -> &dyn Any;
 
+    #[doc(hidden)]
     fn debug(&self, _f: &mut Formatter, _: &dyn Sealed) -> Option<fmt::Result> {
         None
     }
@@ -124,18 +186,9 @@ impl<T: AcmeServer + Clone + Debug + Send + Sync + 'static> DynAcmeServer for T 
 }
 
 #[async_trait]
-impl AcmeServerBuilder for Infallible {
-    type Server = Box<dyn DynAcmeServer>;
-
-    async fn build(&mut self) -> Result<Self::Server, <Self::Server as AcmeServer>::Error> {
-        match *self {}
-    }
-}
-
-#[async_trait]
 impl AcmeServer for Box<dyn DynAcmeServer> {
     type Error = ErrorWrapper;
-    type Builder = Infallible;
+    type Builder = Box<dyn DynAcmeServerBuilder>;
 
     async fn new_nonce(&self) -> Result<String, Self::Error> {
         Ok(self.deref().new_nonce_dyn(&SealedImpl).await?)
@@ -192,31 +245,5 @@ impl Debug for dyn DynAcmeServer {
             Some(res) => res,
             None => f.write_str("DynAcmeServer"),
         }
-    }
-}
-
-pub struct ErrorWrapper(pub DynError);
-
-impl Display for ErrorWrapper {
-    fn fmt(&self, f: &mut Formatter) -> fmt::Result {
-        write!(f, "{}", self.0)
-    }
-}
-
-impl Debug for ErrorWrapper {
-    fn fmt(&self, f: &mut Formatter) -> fmt::Result {
-        write!(f, "{}", self.0)
-    }
-}
-
-impl Error for ErrorWrapper {
-    fn source(&self) -> Option<&(dyn Error + 'static)> {
-        self.0.source()
-    }
-}
-
-impl From<DynError> for ErrorWrapper {
-    fn from(inner: DynError) -> Self {
-        Self(inner)
     }
 }
