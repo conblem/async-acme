@@ -7,7 +7,6 @@ use hyper_rustls::HttpsConnectorBuilder;
 use serde::ser::SerializeStruct;
 use serde::{Serialize, Serializer};
 use std::borrow::Cow;
-use std::error::Error;
 use std::fmt::Debug;
 use std::marker::PhantomData;
 use thiserror::Error;
@@ -353,6 +352,7 @@ impl Serialize for AccountKey<'_> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::error::Error;
     use testcontainers::clients::Cli;
 
     use mysql::MySQL;
