@@ -9,6 +9,7 @@ edition = "2018"
 async-trait = "0.1"
 serde = { version = "1", features = ["derive"] }
 http = "0.2"
+time = { version = "0.3", features = ["serde-well-known"] }
 
 [dev-dependencies]
 serde_test = "1"

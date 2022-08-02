@@ -4,6 +4,8 @@ use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use std::convert::{TryFrom, TryInto};
 use std::fmt;
 use std::marker::PhantomData;
+use time::serde::rfc3339::option as rfc3339_option;
+use time::OffsetDateTime;
 
 const fn default_false() -> bool {
     false
@@ -242,9 +244,8 @@ pub struct ApiNewOrder {
 #[serde(rename_all = "camelCase")]
 pub struct ApiOrder<E> {
     pub status: ApiOrderStatus,
-    // todo: make this a real timestamp
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub expires: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none", with = "rfc3339_option")]
+    pub expires: Option<OffsetDateTime>,
     pub identifiers: Vec<ApiIdentifier>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub not_before: Option<String>,
@@ -275,6 +276,7 @@ pub struct ApiAuthorizations {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub expires: Option<String>,
     pub challenges: Vec<String>,
+    #[serde(default = "default_false")]
     pub wildcard: bool,
 }
 
