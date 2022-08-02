@@ -234,11 +234,19 @@ impl Debug for dyn DynAcmeServer {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use std::convert::Infallible;
+    use std::ptr;
+
+    use super::*;
 
     #[derive(Clone, Debug)]
-    pub struct ServerImpl;
+    pub struct ServerImpl(String);
+
+    impl Default for ServerImpl {
+        fn default() -> Self {
+            ServerImpl("".to_string())
+        }
+    }
 
     #[async_trait]
     impl AcmeServer for ServerImpl {
@@ -290,10 +298,27 @@ mod tests {
 
     #[tokio::test]
     async fn downcast_works() {
-        let server: Box<dyn DynAcmeServer> = Box::new(ServerImpl);
+        let server: Box<dyn DynAcmeServer> = Box::new(ServerImpl::default());
         let any = server.into_any();
 
         let server = any.downcast::<ServerImpl>().unwrap();
         let _server = *server;
+    }
+
+    #[tokio::test]
+    async fn debug_works() {
+        let server: Box<dyn DynAcmeServer> = Box::new(ServerImpl::default());
+        assert_eq!("ServerImpl(\"\")", format!("{:?}", server));
+    }
+
+    #[tokio::test]
+    async fn clone_works() {
+        let server: Box<dyn DynAcmeServer> = Box::new(ServerImpl::default());
+        let server_clone = server.clone();
+
+        let server = server.into_any().downcast::<ServerImpl>().unwrap();
+        let server_clone = server_clone.into_any().downcast::<ServerImpl>().unwrap();
+
+        assert!(!ptr::eq(&*server, &*server_clone));
     }
 }
