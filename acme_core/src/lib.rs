@@ -3,6 +3,7 @@ use std::error::Error;
 
 mod dto;
 mod dynamic;
+mod infallible;
 
 pub use dto::*;
 pub use dynamic::*;
@@ -30,7 +31,7 @@ where
 #[async_trait]
 pub trait AcmeServer: Send + Sync {
     type Error: Error + Send + Sync + 'static;
-    type Builder: AcmeServerBuilder<Server = Self>;
+    type Builder: AcmeServerBuilder;
 
     async fn new_nonce(&self) -> Result<String, Self::Error>;
 

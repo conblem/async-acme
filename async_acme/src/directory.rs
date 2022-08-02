@@ -378,8 +378,7 @@ mod tests {
         let account = directory.new_account("test@test.com").await?;
         let mut order = account.new_order("example.com").await?;
         order.update().await?;
-
-        //panic!("{:?}", order)
+        panic!("{:?}", order.inner);
         Ok(())
     }
 }

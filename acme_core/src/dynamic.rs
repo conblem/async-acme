@@ -1,13 +1,10 @@
-use crate::{
-    AcmeServer, AcmeServerBuilder, ApiAccount, ApiDirectory, ApiNewOrder, ApiOrder, SignedRequest,
-    Uri,
-};
+use crate::{AcmeServer, ApiAccount, ApiDirectory, ApiNewOrder, ApiOrder, SignedRequest, Uri};
 use async_trait::async_trait;
 use std::any::Any;
+use std::convert::Infallible;
 use std::error::Error;
 use std::fmt;
 use std::fmt::{Debug, Display, Formatter};
-use std::ops::{Deref, DerefMut};
 
 type DynError = Box<dyn Error + Send + Sync + 'static>;
 
@@ -46,34 +43,6 @@ mod sealed {
 
 struct PrivateImpl;
 impl Private for PrivateImpl {}
-
-#[async_trait]
-pub trait DynAcmeServerBuilder: Send + Sync + 'static {
-    #[doc(hidden)]
-    async fn build_dyn(&mut self, _: &dyn Private) -> Result<Box<dyn DynAcmeServer>, ErrorWrapper>;
-}
-
-#[async_trait]
-impl<T: AcmeServerBuilder> DynAcmeServerBuilder for T
-where
-    T::Server: Clone + Debug,
-{
-    async fn build_dyn(&mut self, _: &dyn Private) -> Result<Box<dyn DynAcmeServer>, ErrorWrapper> {
-        match self.build().await {
-            Ok(server) => Ok(Box::new(server)),
-            Err(err) => Err(ErrorWrapper(err.into())),
-        }
-    }
-}
-
-#[async_trait]
-impl AcmeServerBuilder for Box<dyn DynAcmeServerBuilder> {
-    type Server = Box<dyn DynAcmeServer>;
-
-    async fn build(&mut self) -> Result<Self::Server, <Self::Server as AcmeServer>::Error> {
-        self.deref_mut().build_dyn(&PrivateImpl).await
-    }
-}
 
 #[async_trait]
 pub trait DynAcmeServer: Send + Sync + 'static {
@@ -201,23 +170,23 @@ impl<T: AcmeServer + Clone + Debug + Send + Sync + 'static> DynAcmeServer for T 
 }
 
 #[async_trait]
-impl AcmeServer for Box<dyn DynAcmeServer> {
+impl AcmeServer for dyn DynAcmeServer {
     type Error = ErrorWrapper;
-    type Builder = Box<dyn DynAcmeServerBuilder>;
+    type Builder = Infallible;
 
     async fn new_nonce(&self) -> Result<String, Self::Error> {
-        Ok(self.deref().new_nonce_dyn(&PrivateImpl).await?)
+        Ok(self.new_nonce_dyn(&PrivateImpl).await?)
     }
 
     fn directory(&self) -> &ApiDirectory {
-        self.deref().directory_dyn(&PrivateImpl)
+        self.directory_dyn(&PrivateImpl)
     }
 
     async fn new_account(
         &self,
         req: SignedRequest<ApiAccount<()>>,
     ) -> Result<(ApiAccount<()>, Uri), Self::Error> {
-        Ok(self.deref().new_account_dyn(req, &PrivateImpl).await?)
+        Ok(self.new_account_dyn(req, &PrivateImpl).await?)
     }
 
     async fn get_account(
@@ -225,14 +194,14 @@ impl AcmeServer for Box<dyn DynAcmeServer> {
         uri: &Uri,
         req: SignedRequest<()>,
     ) -> Result<ApiAccount<()>, Self::Error> {
-        Ok(self.deref().get_account_dyn(uri, req, &PrivateImpl).await?)
+        Ok(self.get_account_dyn(uri, req, &PrivateImpl).await?)
     }
 
     async fn new_order(
         &self,
         req: SignedRequest<ApiNewOrder>,
     ) -> Result<(ApiOrder<()>, Uri), Self::Error> {
-        Ok(self.deref().new_order_dyn(req, &PrivateImpl).await?)
+        Ok(self.new_order_dyn(req, &PrivateImpl).await?)
     }
 
     async fn get_order(
@@ -240,11 +209,11 @@ impl AcmeServer for Box<dyn DynAcmeServer> {
         uri: &Uri,
         req: SignedRequest<()>,
     ) -> Result<ApiOrder<()>, Self::Error> {
-        Ok(self.deref().get_order_dyn(uri, req, &PrivateImpl).await?)
+        Ok(self.get_order_dyn(uri, req, &PrivateImpl).await?)
     }
 
     async fn finalize(&self) -> Result<(), Self::Error> {
-        Ok(self.deref().finalize_dyn(&PrivateImpl).await?)
+        Ok(self.finalize_dyn(&PrivateImpl).await?)
     }
 }
 
@@ -260,5 +229,71 @@ impl Debug for dyn DynAcmeServer {
             Some(res) => res,
             None => f.write_str("DynAcmeServer"),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::convert::Infallible;
+
+    #[derive(Clone, Debug)]
+    pub struct ServerImpl;
+
+    #[async_trait]
+    impl AcmeServer for ServerImpl {
+        type Error = Infallible;
+        type Builder = Infallible;
+
+        async fn new_nonce(&self) -> Result<String, Self::Error> {
+            todo!()
+        }
+
+        fn directory(&self) -> &ApiDirectory {
+            todo!()
+        }
+
+        async fn new_account(
+            &self,
+            _: SignedRequest<ApiAccount<()>>,
+        ) -> Result<(ApiAccount<()>, Uri), Self::Error> {
+            todo!()
+        }
+
+        async fn get_account(
+            &self,
+            _: &Uri,
+            _: SignedRequest<()>,
+        ) -> Result<ApiAccount<()>, Self::Error> {
+            todo!()
+        }
+
+        async fn new_order(
+            &self,
+            _: SignedRequest<ApiNewOrder>,
+        ) -> Result<(ApiOrder<()>, Uri), Self::Error> {
+            todo!()
+        }
+
+        async fn get_order(
+            &self,
+            _: &Uri,
+            _: SignedRequest<()>,
+        ) -> Result<ApiOrder<()>, Self::Error> {
+            todo!()
+        }
+
+        async fn finalize(&self) -> Result<(), Self::Error> {
+            todo!()
+        }
+    }
+
+    #[tokio::test]
+    async fn downcast_works() {
+        let server: Box<dyn DynAcmeServer> = Box::new(ServerImpl);
+        let any = server.into_any();
+
+        let server = any.downcast::<ServerImpl>().unwrap();
+        let _server = *server;
     }
 }
