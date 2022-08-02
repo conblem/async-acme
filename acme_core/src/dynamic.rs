@@ -239,14 +239,9 @@ mod tests {
 
     use super::*;
 
-    #[derive(Clone, Debug)]
-    pub struct ServerImpl(String);
-
-    impl Default for ServerImpl {
-        fn default() -> Self {
-            ServerImpl("".to_string())
-        }
-    }
+    // Type can't be zero sized for ptr equality test to work.
+    #[derive(Clone, Debug, Default)]
+    pub struct ServerImpl(usize);
 
     #[async_trait]
     impl AcmeServer for ServerImpl {
@@ -299,16 +294,13 @@ mod tests {
     #[tokio::test]
     async fn downcast_works() {
         let server: Box<dyn DynAcmeServer> = Box::new(ServerImpl::default());
-        let any = server.into_any();
-
-        let server = any.downcast::<ServerImpl>().unwrap();
-        let _server = *server;
+        let _server: ServerImpl = *server.into_any().downcast::<ServerImpl>().unwrap();
     }
 
     #[tokio::test]
     async fn debug_works() {
         let server: Box<dyn DynAcmeServer> = Box::new(ServerImpl::default());
-        assert_eq!("ServerImpl(\"\")", format!("{:?}", server));
+        assert_eq!("ServerImpl(0)", format!("{:?}", server));
     }
 
     #[tokio::test]
@@ -319,6 +311,8 @@ mod tests {
         let server = server.into_any().downcast::<ServerImpl>().unwrap();
         let server_clone = server_clone.into_any().downcast::<ServerImpl>().unwrap();
 
+        // This would not work with a zero sized type
+        // because zero sized types all have the same ptr
         assert!(!ptr::eq(&*server, &*server_clone));
     }
 }

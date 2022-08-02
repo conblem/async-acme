@@ -7,8 +7,10 @@ use hyper_rustls::HttpsConnectorBuilder;
 use serde::ser::SerializeStruct;
 use serde::{Serialize, Serializer};
 use std::borrow::Cow;
-use std::fmt::Debug;
+use std::fmt;
+use std::fmt::{Debug, Formatter};
 use std::marker::PhantomData;
+use std::ops::{Deref, DerefMut};
 use thiserror::Error;
 
 use crate::crypto::{
@@ -289,16 +291,58 @@ impl<'a> Account<'a> {
     }
 }
 
+enum NotCloneCow<'a, T> {
+    Borrowed(&'a T),
+    Owned(T),
+}
+
+impl<'a, T: Debug> Debug for NotCloneCow<'a, T> {
+    fn fmt(&self, f: &mut Formatter) -> fmt::Result {
+        match self {
+            NotCloneCow::Borrowed(t) => t.fmt(f),
+            NotCloneCow::Owned(t) => t.fmt(f),
+        }
+    }
+}
+
+impl<'a, T> Deref for NotCloneCow<'a, T> {
+    type Target = T;
+
+    fn deref(&self) -> &Self::Target {
+        match self {
+            NotCloneCow::Borrowed(t) => t,
+            NotCloneCow::Owned(t) => t,
+        }
+    }
+}
+
+impl<'a, T> DerefMut for NotCloneCow<'a, T> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        match self {
+            NotCloneCow::Borrowed(t) => t,
+            NotCloneCow::Owned(t) => t,
+        }
+    }
+}
+
 #[derive(Debug)]
 pub struct Order<'a> {
-    account: &'a Account<'a>,
+    account: NotCloneCow<'a, Account<'a>>,
     inner: ApiOrder<()>,
     location: Uri,
 }
 
 impl<'a> Order<'a> {
+    pub fn into_owned(self) -> Order<'static> {
+        Order {
+            account: NotCloneCow::Owned(self.account.into_owned()),
+            inner: self.inner,
+            location: self.location,
+        }
+    }
+
     pub async fn update(&mut self) -> Result<&mut Order<'a>, DirectoryError> {
-        let account = self.account;
+        let account = &self.account;
         let directory = &account.directory;
 
         let protected = directory
@@ -309,6 +353,10 @@ impl<'a> Order<'a> {
         let order = directory.server.get_order(&self.location, signed).await?;
         self.inner = order;
         Ok(self)
+    }
+
+    pub async fn authorization(&mut self) -> Result<&mut Order<'a>, DirectoryError> {
+        todo!()
     }
 }
 
