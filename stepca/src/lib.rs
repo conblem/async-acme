@@ -1,7 +1,8 @@
 use hyper::client::HttpConnector;
 use hyper_rustls::HttpsConnector;
-use rustls::{Certificate, ClientConfig, RootCertStore};
+use rustls::{Certificate, ClientConfig, KeyLogFile, RootCertStore};
 use std::error::Error;
+use std::sync::Arc;
 use testcontainers::clients::Cli;
 use testcontainers::core::WaitFor;
 use testcontainers::images::generic::GenericImage;
@@ -52,10 +53,11 @@ impl<'a> Stepca<'a> {
         let mut root_cert = rustls_pemfile::certs(&mut root_cert)?;
         root_certs.add(&Certificate(root_cert.remove(0)))?;
 
-        let config = ClientConfig::builder()
+        let mut config = ClientConfig::builder()
             .with_safe_defaults()
             .with_root_certificates(root_certs)
             .with_no_client_auth();
+        config.key_log = Arc::new(KeyLogFile::new());
 
         let mut http = HttpConnector::new();
         http.enforce_http(false);

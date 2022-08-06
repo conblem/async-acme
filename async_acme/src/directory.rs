@@ -9,10 +9,8 @@ use serde::ser::SerializeStruct;
 use serde::{Serialize, Serializer};
 use std::borrow::Cow;
 use std::convert::TryFrom;
-use std::fmt;
-use std::fmt::{Debug, Formatter};
+use std::fmt::Debug;
 use std::marker::PhantomData;
-use std::ops::{Deref, DerefMut};
 use std::sync::Arc;
 use thiserror::Error;
 
@@ -359,7 +357,7 @@ pub struct Authorization<'a> {
 impl<'a> Authorization<'a> {
     pub async fn http_challenge(&self) -> Option<()> {
         for challenge in &self.inner.challenges {
-            if (challenge.type_field == ApiChallengeType::HTTP) {
+            if challenge.type_field == ApiChallengeType::HTTP {
                 return Some(());
             }
         }
@@ -420,10 +418,10 @@ mod tests {
         let _mysql = MySQL::run(&docker, "directory");
         let stepca = Stepca::run(&docker, "directory");
 
+        let endpoint = stepca.endpoint("/directory");
+        println!("{}", endpoint);
         let mut server_builder = HyperAcmeServer::builder();
-        server_builder
-            .url(stepca.endpoint("/directory"))
-            .connector(stepca.connector()?);
+        server_builder.url(endpoint).connector(stepca.connector()?);
 
         let directory = Directory::builder()
             .server(server_builder)
@@ -431,9 +429,8 @@ mod tests {
             .build()
             .await?;
         let account = directory.new_account("test@test.com").await?;
-        let mut order = account.new_order("example.com").await?;
+        let order = account.new_order("example.com").await?;
         let authorizations = order.authorizations().await?;
         panic!("{:?}", order.inner);
-        Ok(())
     }
 }
