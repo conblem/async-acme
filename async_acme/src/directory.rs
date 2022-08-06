@@ -1,16 +1,19 @@
 use acme_core::{
-    AcmeServer, AcmeServerBuilder, AmceServerExt, ApiAccount, ApiIdentifier, ApiIdentifierType,
-    ApiNewOrder, ApiOrder, DynAcmeServer, ErrorWrapper, Payload, SignedRequest, Uri,
+    AcmeServer, AcmeServerBuilder, AmceServerExt, ApiAccount, ApiAuthorization, ApiIdentifier,
+    ApiIdentifierType, ApiNewOrder, ApiOrder, DynAcmeServer, ErrorWrapper, Payload, SignedRequest,
+    Uri,
 };
 use hyper::client::HttpConnector;
 use hyper_rustls::HttpsConnectorBuilder;
 use serde::ser::SerializeStruct;
 use serde::{Serialize, Serializer};
 use std::borrow::Cow;
+use std::convert::TryFrom;
 use std::fmt;
 use std::fmt::{Debug, Formatter};
 use std::marker::PhantomData;
 use std::ops::{Deref, DerefMut};
+use std::sync::Arc;
 use thiserror::Error;
 
 use crate::crypto::{
@@ -226,17 +229,17 @@ impl Directory {
             directory: Cow::Borrowed(self),
             inner: account,
             kid,
-            key_pair,
+            key_pair: Arc::new(key_pair),
         })
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Account<'a> {
     directory: Cow<'a, Directory>,
     inner: ApiAccount<()>,
     kid: Uri,
-    key_pair: RingKeyPair,
+    key_pair: Arc<RingKeyPair>,
 }
 
 impl<'a> Account<'a> {
@@ -291,58 +294,16 @@ impl<'a> Account<'a> {
     }
 }
 
-enum NotCloneCow<'a, T> {
-    Borrowed(&'a T),
-    Owned(T),
-}
-
-impl<'a, T: Debug> Debug for NotCloneCow<'a, T> {
-    fn fmt(&self, f: &mut Formatter) -> fmt::Result {
-        match self {
-            NotCloneCow::Borrowed(t) => t.fmt(f),
-            NotCloneCow::Owned(t) => t.fmt(f),
-        }
-    }
-}
-
-impl<'a, T> Deref for NotCloneCow<'a, T> {
-    type Target = T;
-
-    fn deref(&self) -> &Self::Target {
-        match self {
-            NotCloneCow::Borrowed(t) => t,
-            NotCloneCow::Owned(t) => t,
-        }
-    }
-}
-
-impl<'a, T> DerefMut for NotCloneCow<'a, T> {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        match self {
-            NotCloneCow::Borrowed(t) => t,
-            NotCloneCow::Owned(t) => t,
-        }
-    }
-}
-
 #[derive(Debug)]
 pub struct Order<'a> {
-    account: NotCloneCow<'a, Account<'a>>,
+    account: &'a Account<'a>,
     inner: ApiOrder<()>,
     location: Uri,
 }
 
 impl<'a> Order<'a> {
-    pub fn into_owned(self) -> Order<'static> {
-        Order {
-            account: NotCloneCow::Owned(self.account.into_owned()),
-            inner: self.inner,
-            location: self.location,
-        }
-    }
-
     pub async fn update(&mut self) -> Result<&mut Order<'a>, DirectoryError> {
-        let account = &self.account;
+        let account = self.account;
         let directory = &account.directory;
 
         let protected = directory
@@ -355,9 +316,42 @@ impl<'a> Order<'a> {
         Ok(self)
     }
 
-    pub async fn authorization(&mut self) -> Result<&mut Order<'a>, DirectoryError> {
-        todo!()
+    pub async fn authorizations(&self) -> Result<Vec<Authorization<'_>>, DirectoryError> {
+        let inner = &self.inner;
+
+        let mut authorizations = Vec::with_capacity(inner.authorizations.len());
+
+        for authorization in &self.inner.authorizations {
+            let authorization = self.authorization(authorization).await?;
+            authorizations.push(authorization);
+        }
+
+        Ok(authorizations)
     }
+
+    async fn authorization(&self, location: &str) -> Result<Authorization<'_>, DirectoryError> {
+        let account = self.account;
+        let directory = &account.directory;
+        // todo: fix this unwrap
+        let uri = Uri::try_from(location).unwrap();
+
+        let protected = directory
+            .protect(&uri, &account.key_pair, &account.kid)
+            .await?;
+
+        let signed: SignedRequest<()> = directory.sign(&account.key_pair, protected, None)?;
+
+        let authorization = directory.server.get_authorization(&uri, signed).await?;
+        Ok(Authorization {
+            inner: authorization,
+            order: self,
+        })
+    }
+}
+
+pub struct Authorization<'a> {
+    order: &'a Order<'a>,
+    inner: ApiAuthorization,
 }
 
 struct Protected<'a> {

@@ -270,7 +270,7 @@ pub enum ApiAuthorizationStatus {
 
 #[derive(Clone, Serialize, Deserialize, Debug)]
 #[serde(rename_all = "camelCase")]
-pub struct ApiAuthorizations {
+pub struct ApiAuthorization {
     pub identifier: ApiIdentifier,
     pub status: ApiAuthorizationStatus,
     #[serde(skip_serializing_if = "Option::is_none")]

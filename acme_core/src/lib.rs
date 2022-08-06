@@ -59,5 +59,11 @@ pub trait AcmeServer: Send + Sync {
         req: SignedRequest<()>,
     ) -> Result<ApiOrder<()>, Self::Error>;
 
+    async fn get_authorization(
+        &self,
+        uri: &Uri,
+        req: SignedRequest<()>,
+    ) -> Result<ApiAuthorization, Self::Error>;
+
     async fn finalize(&self) -> Result<(), Self::Error>;
 }

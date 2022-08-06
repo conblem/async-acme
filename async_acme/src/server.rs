@@ -1,6 +1,6 @@
 use acme_core::{
-    AcmeServer, AcmeServerBuilder, ApiAccount, ApiDirectory, ApiError, ApiNewOrder, ApiOrder,
-    SignedRequest, Uri,
+    AcmeServer, AcmeServerBuilder, ApiAccount, ApiAuthorization, ApiDirectory, ApiError,
+    ApiNewOrder, ApiOrder, SignedRequest, Uri,
 };
 use async_trait::async_trait;
 use hyper::body::Bytes;
@@ -280,6 +280,15 @@ impl<C: Connect> AcmeServer for HyperAcmeServer<C> {
     ) -> Result<ApiOrder<()>, Self::Error> {
         let (order, _) = self.post(req, uri).await?;
         Ok(order)
+    }
+
+    async fn get_authorization(
+        &self,
+        uri: &Uri,
+        req: SignedRequest<()>,
+    ) -> Result<ApiAuthorization, Self::Error> {
+        let (authorization, _) = self.post(req, uri).await?;
+        Ok(authorization)
     }
 
     async fn finalize(&self) -> Result<(), Self::Error> {

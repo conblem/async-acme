@@ -1,4 +1,7 @@
-use crate::{AcmeServer, ApiAccount, ApiDirectory, ApiNewOrder, ApiOrder, SignedRequest, Uri};
+use crate::{
+    AcmeServer, ApiAccount, ApiAuthorization, ApiDirectory, ApiNewOrder, ApiOrder, SignedRequest,
+    Uri,
+};
 use async_trait::async_trait;
 use std::any::Any;
 use std::convert::Infallible;
@@ -83,6 +86,14 @@ pub trait DynAcmeServer: Send + Sync + 'static {
     ) -> Result<ApiOrder<()>, DynError>;
 
     #[doc(hidden)]
+    async fn get_authorization_dyn(
+        &self,
+        uri: &Uri,
+        req: SignedRequest<()>,
+        _: &dyn Private,
+    ) -> Result<ApiAuthorization, DynError>;
+
+    #[doc(hidden)]
     async fn finalize_dyn(&self, _: &dyn Private) -> Result<(), DynError>;
 
     #[doc(hidden)]
@@ -142,6 +153,15 @@ impl<T: AcmeServer + Clone + Debug + Send + Sync + 'static> DynAcmeServer for T 
         _: &dyn Private,
     ) -> Result<ApiOrder<()>, DynError> {
         Ok(self.get_order(uri, req).await?)
+    }
+
+    async fn get_authorization_dyn(
+        &self,
+        uri: &Uri,
+        req: SignedRequest<()>,
+        _: &dyn Private,
+    ) -> Result<ApiAuthorization, DynError> {
+        Ok(self.get_authorization(uri, req).await?)
     }
 
     async fn finalize_dyn(&self, _: &dyn Private) -> Result<(), DynError> {
@@ -210,6 +230,14 @@ impl AcmeServer for dyn DynAcmeServer {
         req: SignedRequest<()>,
     ) -> Result<ApiOrder<()>, Self::Error> {
         Ok(self.get_order_dyn(uri, req, &PrivateImpl).await?)
+    }
+
+    async fn get_authorization(
+        &self,
+        uri: &Uri,
+        req: SignedRequest<()>,
+    ) -> Result<ApiAuthorization, Self::Error> {
+        Ok(self.get_authorization_dyn(uri, req, &PrivateImpl).await?)
     }
 
     async fn finalize(&self) -> Result<(), Self::Error> {
@@ -283,6 +311,14 @@ mod tests {
             _: &Uri,
             _: SignedRequest<()>,
         ) -> Result<ApiOrder<()>, Self::Error> {
+            todo!()
+        }
+
+        async fn get_authorization(
+            &self,
+            _: &Uri,
+            _: SignedRequest<()>,
+        ) -> Result<ApiAuthorization, Self::Error> {
             todo!()
         }
 
