@@ -1,7 +1,7 @@
 use acme_core::{
-    AcmeServer, AcmeServerBuilder, AmceServerExt, ApiAccount, ApiAuthorization, ApiIdentifier,
-    ApiIdentifierType, ApiNewOrder, ApiOrder, DynAcmeServer, ErrorWrapper, Payload, SignedRequest,
-    Uri,
+    AcmeServer, AcmeServerBuilder, AmceServerExt, ApiAccount, ApiAuthorization, ApiChallengeType,
+    ApiIdentifier, ApiIdentifierType, ApiNewOrder, ApiOrder, DynAcmeServer, ErrorWrapper, Payload,
+    SignedRequest, Uri,
 };
 use hyper::client::HttpConnector;
 use hyper_rustls::HttpsConnectorBuilder;
@@ -345,6 +345,7 @@ impl<'a> Order<'a> {
         Ok(Authorization {
             inner: authorization,
             order: self,
+            location: uri,
         })
     }
 }
@@ -352,6 +353,18 @@ impl<'a> Order<'a> {
 pub struct Authorization<'a> {
     order: &'a Order<'a>,
     inner: ApiAuthorization,
+    location: Uri,
+}
+
+impl<'a> Authorization<'a> {
+    pub async fn http_challenge(&self) -> Option<()> {
+        for challenge in &self.inner.challenges {
+            if (challenge.type_field == ApiChallengeType::HTTP) {
+                return Some(());
+            }
+        }
+        None
+    }
 }
 
 struct Protected<'a> {
@@ -419,7 +432,7 @@ mod tests {
             .await?;
         let account = directory.new_account("test@test.com").await?;
         let mut order = account.new_order("example.com").await?;
-        order.update().await?;
+        let authorizations = order.authorizations().await?;
         panic!("{:?}", order.inner);
         Ok(())
     }

@@ -275,7 +275,7 @@ pub struct ApiAuthorization {
     pub status: ApiAuthorizationStatus,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub expires: Option<String>,
-    pub challenges: Vec<String>,
+    pub challenges: Vec<ApiChallenge>,
     #[serde(default = "default_false")]
     pub wildcard: bool,
 }
@@ -328,7 +328,7 @@ pub enum ApiChallengeStatus {
 #[serde(rename_all = "camelCase")]
 pub struct ApiChallenge {
     #[serde(rename = "type")]
-    pub type_field: String,
+    pub type_field: ApiChallengeType,
     pub url: String,
     pub status: ApiChallengeStatus,
     #[serde(skip_serializing_if = "Option::is_none")]
