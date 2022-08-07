@@ -291,6 +291,8 @@ impl<C: Connect> AcmeServer for HyperAcmeServer<C> {
         Ok(authorization)
     }
 
+    async fn validate_challenge(&self, uri: &Uri, req: SignedRequest<()>)
+
     async fn finalize(&self) -> Result<(), Self::Error> {
         todo!()
     }

@@ -1,3 +1,4 @@
+use ring::digest::{digest, Digest, SHA256};
 use ring::error::{KeyRejected, Unspecified};
 use ring::pkcs8::Document;
 use ring::rand::SystemRandom;
@@ -14,8 +15,10 @@ pub trait Crypto: Sized {
     type Error: Error + 'static;
     type KeyPair: KeyPair<Error = Self::Error>;
     type Signer: Signer<Error = Self::Error, KeyPair = Self::KeyPair>;
+    type Thumbprint: AsRef<[u8]>;
 
     fn signer<T: Into<Option<usize>>>(self, size_hint: T) -> Self::Signer;
+    fn thumbprint<T: AsRef<[u8]>>(self, buf: T) -> Result<Self::Thumbprint, Self::Error>;
 
     fn private_key(self) -> Result<Self::KeyPair, Self::Error>;
 }
@@ -96,6 +99,7 @@ impl<'a> Crypto for &'a RingCrypto {
     type Error = RingCryptoError;
     type KeyPair = RingKeyPair;
     type Signer = RingSigner<'a>;
+    type Thumbprint = Digest;
 
     fn signer<T: Into<Option<usize>>>(self, size_hint: T) -> Self::Signer {
         let size_hint = size_hint.into().unwrap_or_default();
@@ -103,6 +107,11 @@ impl<'a> Crypto for &'a RingCrypto {
             inner: Vec::with_capacity(size_hint),
             random: &self.random,
         }
+    }
+
+    fn thumbprint<T: AsRef<[u8]>>(self, buf: T) -> Result<Self::Thumbprint, Self::Error> {
+        let digest = digest(&SHA256, buf.as_ref());
+        Ok(digest)
     }
 
     fn private_key(self) -> Result<Self::KeyPair, Self::Error> {

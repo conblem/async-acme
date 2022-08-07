@@ -331,6 +331,8 @@ pub struct ApiChallenge {
     pub type_field: ApiChallengeType,
     pub url: String,
     pub status: ApiChallengeStatus,
+    pub token: String,
+    // todo: turn into rfc3339
     #[serde(skip_serializing_if = "Option::is_none")]
     pub validated: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]

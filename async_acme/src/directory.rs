@@ -1,7 +1,7 @@
 use acme_core::{
-    AcmeServer, AcmeServerBuilder, AmceServerExt, ApiAccount, ApiAuthorization, ApiChallengeType,
-    ApiIdentifier, ApiIdentifierType, ApiNewOrder, ApiOrder, DynAcmeServer, ErrorWrapper, Payload,
-    SignedRequest, Uri,
+    AcmeServer, AcmeServerBuilder, AmceServerExt, ApiAccount, ApiAuthorization, ApiChallenge,
+    ApiChallengeType, ApiIdentifier, ApiIdentifierType, ApiNewOrder, ApiOrder, DynAcmeServer,
+    ErrorWrapper, Payload, SignedRequest, Uri,
 };
 use hyper::client::HttpConnector;
 use hyper_rustls::HttpsConnectorBuilder;
@@ -28,6 +28,7 @@ mod private {
     impl Sealed for NeedsServer {}
     impl Sealed for NeedsEndpoint {}
     impl Sealed for Finished {}
+    impl Sealed for Http {}
 }
 
 pub trait DirectoryBuilderConfigState: private::Sealed {}
@@ -348,6 +349,7 @@ impl<'a> Order<'a> {
     }
 }
 
+#[derive(Debug)]
 pub struct Authorization<'a> {
     order: &'a Order<'a>,
     inner: ApiAuthorization,
@@ -355,13 +357,55 @@ pub struct Authorization<'a> {
 }
 
 impl<'a> Authorization<'a> {
-    pub async fn http_challenge(&self) -> Option<()> {
-        for challenge in &self.inner.challenges {
-            if challenge.type_field == ApiChallengeType::HTTP {
-                return Some(());
-            }
-        }
-        None
+    pub fn http_challenge(&self) -> Option<Challenge<'_, Http>> {
+        self.inner
+            .challenges
+            .iter()
+            .find(|c| c.type_field == ApiChallengeType::HTTP)
+            .map(|c| Challenge {
+                inner: c,
+                authorization: self,
+                phantom: PhantomData,
+            })
+    }
+}
+
+pub trait ChallengeType: private::Sealed {}
+impl ChallengeType for Http {}
+
+pub struct Http;
+
+#[derive(Debug)]
+pub struct Challenge<'a, T: ChallengeType> {
+    authorization: &'a Authorization<'a>,
+    inner: &'a ApiChallenge,
+    phantom: PhantomData<T>,
+}
+
+impl<'a, T: ChallengeType> Challenge<'a, T> {
+    pub fn token(&self) -> &str {
+        &self.inner.token
+    }
+
+    pub async fn validate(&self) {
+        self.authorization.order.account.directory.server;
+    }
+}
+
+impl<'a> Challenge<'a, Http> {
+    pub fn proof(&self) -> Result<String, DirectoryError> {
+        let mut token = self.inner.token.clone();
+        token.push('.');
+
+        let account = self.authorization.order.account;
+
+        let public_key = account.key_pair.public_key();
+        let public_key = serde_json::to_vec(&public_key)?;
+
+        let thumbprint = account.directory.crypto.thumbprint(public_key)?;
+        base64::encode_config_buf(thumbprint, base64::URL_SAFE_NO_PAD, &mut token);
+
+        Ok(token)
     }
 }
 
@@ -406,9 +450,11 @@ impl Serialize for AccountKey<'_> {
 mod tests {
     use super::*;
     use std::error::Error;
+    use std::time::Duration;
     use testcontainers::clients::Cli;
 
     use mysql::MySQL;
+    use nginx_minio::WebserverWithApi;
     use stepca::Stepca;
 
     #[tokio::test]
@@ -429,8 +475,15 @@ mod tests {
             .build()
             .await?;
         let account = directory.new_account("test@test.com").await?;
-        let order = account.new_order("example.com").await?;
+        let order = account.new_order("nginx").await?;
         let authorizations = order.authorizations().await?;
+        let challenge = authorizations[0].http_challenge().unwrap();
+        let proof = challenge.proof()?;
+        let token = challenge.token();
+
+        let webserver = WebserverWithApi::new(&docker, "directory")?;
+        webserver.put_text(challenge.token(), proof).await?;
+        tokio::time::sleep(Duration::from_secs(20)).await;
         panic!("{:?}", order.inner);
     }
 }
