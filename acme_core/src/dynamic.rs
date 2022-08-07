@@ -94,6 +94,14 @@ pub trait DynAcmeServer: Send + Sync + 'static {
     ) -> Result<ApiAuthorization, DynError>;
 
     #[doc(hidden)]
+    async fn validate_challenge_dyn(
+        &self,
+        uri: &Uri,
+        req: SignedRequest<()>,
+        _: &dyn Private,
+    ) -> Result<(), DynError>;
+
+    #[doc(hidden)]
     async fn finalize_dyn(&self, _: &dyn Private) -> Result<(), DynError>;
 
     #[doc(hidden)]
@@ -162,6 +170,15 @@ impl<T: AcmeServer + Clone + Debug + Send + Sync + 'static> DynAcmeServer for T 
         _: &dyn Private,
     ) -> Result<ApiAuthorization, DynError> {
         Ok(self.get_authorization(uri, req).await?)
+    }
+
+    async fn validate_challenge_dyn(
+        &self,
+        uri: &Uri,
+        req: SignedRequest<()>,
+        _: &dyn Private,
+    ) -> Result<(), DynError> {
+        Ok(self.validate_challenge(uri, req).await?)
     }
 
     async fn finalize_dyn(&self, _: &dyn Private) -> Result<(), DynError> {
@@ -238,6 +255,14 @@ impl AcmeServer for dyn DynAcmeServer {
         req: SignedRequest<()>,
     ) -> Result<ApiAuthorization, Self::Error> {
         Ok(self.get_authorization_dyn(uri, req, &PrivateImpl).await?)
+    }
+
+    async fn validate_challenge(
+        &self,
+        uri: &Uri,
+        req: SignedRequest<()>,
+    ) -> Result<(), Self::Error> {
+        Ok(self.validate_challenge_dyn(uri, req, &PrivateImpl).await?)
     }
 
     async fn finalize(&self) -> Result<(), Self::Error> {
@@ -319,6 +344,14 @@ mod tests {
             _: &Uri,
             _: SignedRequest<()>,
         ) -> Result<ApiAuthorization, Self::Error> {
+            todo!()
+        }
+
+        async fn validate_challenge(
+            &self,
+            _: &Uri,
+            _: SignedRequest<()>,
+        ) -> Result<(), Self::Error> {
             todo!()
         }
 

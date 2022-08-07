@@ -61,6 +61,14 @@ impl AcmeServer for Infallible {
         match *self {}
     }
 
+    async fn validate_challenge(
+        &self,
+        uri: &Uri,
+        req: SignedRequest<()>,
+    ) -> Result<(), Self::Error> {
+        match *self {}
+    }
+
     async fn finalize(&self) -> Result<(), Self::Error> {
         match *self {}
     }

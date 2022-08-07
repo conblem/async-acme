@@ -8,6 +8,7 @@ use hyper_rustls::HttpsConnectorBuilder;
 use serde::ser::SerializeStruct;
 use serde::{Serialize, Serializer};
 use std::borrow::Cow;
+use std::collections::HashMap;
 use std::convert::TryFrom;
 use std::fmt::Debug;
 use std::marker::PhantomData;
@@ -387,8 +388,23 @@ impl<'a, T: ChallengeType> Challenge<'a, T> {
         &self.inner.token
     }
 
-    pub async fn validate(&self) {
-        self.authorization.order.account.directory.server;
+    pub async fn validate(&self) -> Result<(), DirectoryError> {
+        let account = self.authorization.order.account;
+        let directory = &account.directory;
+        // todo: remove unwrap
+        let uri = Uri::try_from(&*self.inner.url).unwrap();
+
+        let protected = directory
+            .protect(&uri, &account.key_pair, &account.kid)
+            .await?;
+
+        let empty_object = HashMap::<(), ()>::new();
+        let empty_object = directory.serialize_and_base64_encode(&empty_object)?;
+
+        let signed = directory.sign(&account.key_pair, protected, empty_object)?;
+
+        directory.server.validate_challenge(&uri, signed).await?;
+        Ok(())
     }
 }
 
@@ -483,7 +499,9 @@ mod tests {
 
         let webserver = WebserverWithApi::new(&docker, "directory")?;
         webserver.put_text(challenge.token(), proof).await?;
-        tokio::time::sleep(Duration::from_secs(20)).await;
+
+        challenge.validate().await?;
+        //tokio::time::sleep(Duration::from_secs(20)).await;
         panic!("{:?}", order.inner);
     }
 }
