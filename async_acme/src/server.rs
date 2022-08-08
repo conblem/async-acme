@@ -1,6 +1,6 @@
 use acme_core::{
-    AcmeServer, AcmeServerBuilder, ApiAccount, ApiAuthorization, ApiDirectory, ApiError,
-    ApiNewOrder, ApiOrder, SignedRequest, Uri,
+    AcmeServer, AcmeServerBuilder, ApiAccount, ApiAuthorization, ApiChallenge, ApiDirectory,
+    ApiError, ApiNewOrder, ApiOrder, SignedRequest, Uri,
 };
 use async_trait::async_trait;
 use hyper::body::Bytes;
@@ -282,6 +282,7 @@ impl<C: Connect> AcmeServer for HyperAcmeServer<C> {
         Ok(order)
     }
 
+    // todo: use retry Retry-After header
     async fn get_authorization(
         &self,
         uri: &Uri,
@@ -295,9 +296,9 @@ impl<C: Connect> AcmeServer for HyperAcmeServer<C> {
         &self,
         uri: &Uri,
         req: SignedRequest<()>,
-    ) -> Result<(), Self::Error> {
-        self.post::<_, ()>(req, uri).await?;
-        Ok(())
+    ) -> Result<ApiChallenge, Self::Error> {
+        let (challenge, _) = self.post(req, uri).await?;
+        Ok(challenge)
     }
 
     async fn finalize(&self) -> Result<(), Self::Error> {

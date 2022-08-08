@@ -69,7 +69,7 @@ pub trait AcmeServer: Send + Sync {
         &self,
         uri: &Uri,
         req: SignedRequest<()>,
-    ) -> Result<(), Self::Error>;
+    ) -> Result<ApiChallenge, Self::Error>;
 
     async fn finalize(&self) -> Result<(), Self::Error>;
 }

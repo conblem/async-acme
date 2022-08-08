@@ -12,6 +12,7 @@ use std::collections::HashMap;
 use std::convert::TryFrom;
 use std::fmt::Debug;
 use std::marker::PhantomData;
+use std::mem;
 use std::sync::Arc;
 use thiserror::Error;
 
@@ -322,30 +323,30 @@ impl<'a> Order<'a> {
         let mut authorizations = Vec::with_capacity(inner.authorizations.len());
 
         for authorization in &self.inner.authorizations {
-            let authorization = self.authorization(authorization).await?;
+            // todo: fix this unwrap
+            let location = Uri::try_from(authorization).unwrap();
+            let authorization = self.authorization(&location).await?;
             authorizations.push(authorization);
         }
 
         Ok(authorizations)
     }
 
-    async fn authorization(&self, location: &str) -> Result<Authorization<'_>, DirectoryError> {
+    async fn authorization(&self, location: &Uri) -> Result<Authorization<'_>, DirectoryError> {
         let account = self.account;
         let directory = &account.directory;
-        // todo: fix this unwrap
-        let uri = Uri::try_from(location).unwrap();
 
         let protected = directory
-            .protect(&uri, &account.key_pair, &account.kid)
+            .protect(location, &account.key_pair, &account.kid)
             .await?;
 
         let signed: SignedRequest<()> = directory.sign(&account.key_pair, protected, None)?;
 
-        let authorization = directory.server.get_authorization(&uri, signed).await?;
+        let authorization = directory.server.get_authorization(location, signed).await?;
         Ok(Authorization {
             inner: authorization,
             order: self,
-            location: uri,
+            location: location.clone(),
         })
     }
 }
@@ -368,6 +369,13 @@ impl<'a> Authorization<'a> {
                 authorization: self,
                 phantom: PhantomData,
             })
+    }
+
+    pub async fn update(&mut self) -> Result<(), DirectoryError> {
+        let mut this = self.order.authorization(&self.location).await?;
+        mem::swap(self, &mut this);
+
+        Ok(())
     }
 }
 
@@ -403,6 +411,7 @@ impl<'a, T: ChallengeType> Challenge<'a, T> {
 
         let signed = directory.sign(&account.key_pair, protected, empty_object)?;
 
+        // todo: maybe use return type
         directory.server.validate_challenge(&uri, signed).await?;
         Ok(())
     }
@@ -476,6 +485,7 @@ mod tests {
     #[tokio::test]
     async fn test() -> Result<(), Box<dyn Error + Send + Sync + 'static>> {
         let docker = Cli::default();
+        let webserver = WebserverWithApi::new(&docker, "directory")?;
         // todo: rename docker network because its the same as the other;
         let _mysql = MySQL::run(&docker, "directory");
         let stepca = Stepca::run(&docker, "directory");
@@ -491,16 +501,17 @@ mod tests {
             .build()
             .await?;
         let account = directory.new_account("test@test.com").await?;
-        let order = account.new_order("nginx").await?;
-        let authorizations = order.authorizations().await?;
-        let challenge = authorizations[0].http_challenge().unwrap();
-        let proof = challenge.proof()?;
-        let token = challenge.token();
+        let order = account.new_order("nginx.conblem.me").await?;
+        let mut authorizations = order.authorizations().await?;
+        let authorization = &mut authorizations[0];
+        let challenge = authorization.http_challenge().unwrap();
 
-        let webserver = WebserverWithApi::new(&docker, "directory")?;
-        webserver.put_text(challenge.token(), proof).await?;
+        webserver
+            .put_text(challenge.token(), challenge.proof()?)
+            .await?;
 
         challenge.validate().await?;
+        authorization.update().await?;
         //tokio::time::sleep(Duration::from_secs(20)).await;
         panic!("{:?}", order.inner);
     }

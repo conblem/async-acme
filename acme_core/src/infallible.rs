@@ -1,6 +1,6 @@
 use crate::{
-    AcmeServer, AcmeServerBuilder, ApiAccount, ApiAuthorization, ApiDirectory, ApiNewOrder,
-    ApiOrder, SignedRequest, Uri,
+    AcmeServer, AcmeServerBuilder, ApiAccount, ApiAuthorization, ApiChallenge, ApiDirectory,
+    ApiNewOrder, ApiOrder, SignedRequest, Uri,
 };
 use async_trait::async_trait;
 use std::convert::Infallible;
@@ -65,7 +65,7 @@ impl AcmeServer for Infallible {
         &self,
         uri: &Uri,
         req: SignedRequest<()>,
-    ) -> Result<(), Self::Error> {
+    ) -> Result<ApiChallenge, Self::Error> {
         match *self {}
     }
 

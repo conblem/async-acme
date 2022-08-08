@@ -1,6 +1,6 @@
 use crate::{
-    AcmeServer, ApiAccount, ApiAuthorization, ApiDirectory, ApiNewOrder, ApiOrder, SignedRequest,
-    Uri,
+    AcmeServer, ApiAccount, ApiAuthorization, ApiChallenge, ApiDirectory, ApiNewOrder, ApiOrder,
+    SignedRequest, Uri,
 };
 use async_trait::async_trait;
 use std::any::Any;
@@ -99,7 +99,7 @@ pub trait DynAcmeServer: Send + Sync + 'static {
         uri: &Uri,
         req: SignedRequest<()>,
         _: &dyn Private,
-    ) -> Result<(), DynError>;
+    ) -> Result<ApiChallenge, DynError>;
 
     #[doc(hidden)]
     async fn finalize_dyn(&self, _: &dyn Private) -> Result<(), DynError>;
@@ -177,7 +177,7 @@ impl<T: AcmeServer + Clone + Debug + Send + Sync + 'static> DynAcmeServer for T 
         uri: &Uri,
         req: SignedRequest<()>,
         _: &dyn Private,
-    ) -> Result<(), DynError> {
+    ) -> Result<ApiChallenge, DynError> {
         Ok(self.validate_challenge(uri, req).await?)
     }
 
@@ -261,7 +261,7 @@ impl AcmeServer for dyn DynAcmeServer {
         &self,
         uri: &Uri,
         req: SignedRequest<()>,
-    ) -> Result<(), Self::Error> {
+    ) -> Result<ApiChallenge, Self::Error> {
         Ok(self.validate_challenge_dyn(uri, req, &PrivateImpl).await?)
     }
 

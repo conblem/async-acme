@@ -202,8 +202,8 @@ impl Serialize for RingPublicKey {
     fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
         let mut serializer = serializer.serialize_struct("RingKeyPair", 4)?;
 
-        serializer.serialize_field("kty", "EC")?;
         serializer.serialize_field("crv", "P-384")?;
+        serializer.serialize_field("kty", "EC")?;
 
         match str::from_utf8(&self.x) {
             Ok(x) => serializer.serialize_field("x", x)?,

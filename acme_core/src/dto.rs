@@ -73,6 +73,14 @@ impl TryFrom<String> for Uri {
     }
 }
 
+impl TryFrom<&String> for Uri {
+    type Error = InvalidUri;
+
+    fn try_from(value: &String) -> Result<Self, Self::Error> {
+        Ok(Uri(value.try_into()?))
+    }
+}
+
 impl TryFrom<&str> for Uri {
     type Error = InvalidUri;
 
