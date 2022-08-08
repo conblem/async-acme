@@ -115,20 +115,15 @@ struct ApiError {
     errors: Vec<String>,
 }
 
-pub fn powerdns_container<T: Into<String>, M: Into<String>>(
-    docker: &Cli,
-    name: T,
-    mysql: M,
-) -> Container<'_, GenericImage> {
+pub fn powerdns_container<T: Into<String>>(docker: &Cli, name: T) -> Container<'_, GenericImage> {
     let wait_for = WaitFor::message_on_stderr("Creating backend connection for TCP");
 
-    let powerdns = GenericImage::new("powerdns", "v4.4.1")
+    let powerdns = GenericImage::new("powerdns", "latest")
         .with_wait_for(wait_for)
-        .with_env_var("MYSQL_HOST", mysql)
         .with_env_var("MYSQL_DB", "asyncacme");
 
     let powerdns = RunnableImage::from(powerdns)
-        .with_network("asyncacme")
+        .with_network("powerdns")
         .with_container_name(name);
 
     docker.run(powerdns)
@@ -210,7 +205,7 @@ impl<'a> Server<'a> {}
 
 #[cfg(test)]
 mod tests {
-    use mysql::mysql_container;
+    use mysql::MySQL;
 
     use super::*;
 
@@ -218,9 +213,9 @@ mod tests {
     async fn works() -> Result<(), Error> {
         let docker = Cli::default();
 
-        let _mysql = mysql_container(&docker, "mysql-powerdns");
+        let _mysql = MySQL::run(&docker, "powerdns");
 
-        let powerdns = powerdns_container(&docker, "powerdns", "mysql-powerdns");
+        let powerdns = powerdns_container(&docker, "powerdns");
         let powerdns_port = powerdns.get_host_port_ipv4(8081);
 
         let client = Client::new(format!("http://localhost:{}/api/v1", powerdns_port));
