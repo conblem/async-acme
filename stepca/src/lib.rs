@@ -19,14 +19,13 @@ impl<'a> Stepca<'a> {
         let args = vec![
             "/bin/sh".to_string(),
             "-c".to_string(),
-            "echo \"`dig +short nginx` nginx.conblem.me\" >> /etc/hosts && exec /usr/local/bin/step-ca /home/step/config/ca.json".to_string(),
-            //"exec /usr/local/bin/step-ca /home/step/config/ca.json".to_string(),
+            "exec /usr/local/bin/step-ca /home/step/config/ca.json".to_string(),
         ];
 
         // should be stdout container does weird stuff
         let wait_for = WaitFor::message_on_stderr("Serving HTTPS");
 
-        let smallstep = GenericImage::new("conblem/step-ca", "latest")
+        let smallstep = GenericImage::new("smallstep/step-ca", "latest")
             .with_volume(from, to)
             .with_exposed_port(9000)
             .with_wait_for(wait_for);

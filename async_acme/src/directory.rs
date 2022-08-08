@@ -501,7 +501,7 @@ mod tests {
             .build()
             .await?;
         let account = directory.new_account("test@test.com").await?;
-        let order = account.new_order("nginx.conblem.me").await?;
+        let order = account.new_order("nginx").await?;
         let mut authorizations = order.authorizations().await?;
         let authorization = &mut authorizations[0];
         let challenge = authorization.http_challenge().unwrap();
