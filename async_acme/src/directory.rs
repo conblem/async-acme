@@ -1,7 +1,7 @@
 use acme_core::{
     AcmeServer, AcmeServerBuilder, AmceServerExt, ApiAccount, ApiAuthorization, ApiChallenge,
-    ApiChallengeType, ApiIdentifier, ApiIdentifierType, ApiNewOrder, ApiOrder, DynAcmeServer,
-    ErrorWrapper, Payload, SignedRequest, Uri,
+    ApiChallengeType, ApiIdentifier, ApiIdentifierType, ApiNewOrder, ApiOrder,
+    ApiOrderFinalization, DynAcmeServer, ErrorWrapper, Payload, SignedRequest, Uri,
 };
 use hyper::client::HttpConnector;
 use hyper_rustls::HttpsConnectorBuilder;
@@ -17,7 +17,7 @@ use std::sync::Arc;
 use thiserror::Error;
 
 use crate::crypto::{
-    Crypto, KeyPair, RingCrypto, RingCryptoError, RingKeyPair, RingPublicKey, Signer,
+    Certificate, Crypto, KeyPair, RingCrypto, RingCryptoError, RingKeyPair, RingPublicKey,
 };
 use crate::{HyperAcmeServer, HyperAcmeServerBuilder};
 
@@ -186,16 +186,17 @@ impl Directory {
         P: Into<Option<String>>,
     {
         let payload = payload.into().map(Payload::from).unwrap_or_default();
-        let mut signer = self.crypto.signer(protected.len() + 1 + payload.len());
 
-        signer.update(&protected);
-        signer.update(b".");
+        let mut buf = Vec::with_capacity(protected.len() + 1 + payload.len());
+        buf.extend_from_slice(protected.as_ref());
+        buf.push(b'.');
+
         match &payload {
-            Payload::Post { inner, .. } => signer.update(inner),
+            Payload::Post { inner, .. } => buf.extend_from_slice(inner.as_ref()),
             Payload::Get => {}
         }
 
-        let signature = signer.finish(key_pair)?;
+        let signature = self.crypto.sign(key_pair, buf)?;
         let signature = base64::encode_config(signature, base64::URL_SAFE_NO_PAD);
 
         Ok(SignedRequest {
@@ -266,10 +267,11 @@ impl<'a> Account<'a> {
         Ok(self)
     }
 
-    pub async fn new_order<T: AsRef<str>>(&self, domain: T) -> Result<Order<'_>, DirectoryError> {
+    pub async fn new_order<T: Into<String>>(&self, domain: T) -> Result<Order<'_>, DirectoryError> {
+        let domain = domain.into();
         let identifier = ApiIdentifier {
             type_field: ApiIdentifierType::DNS,
-            value: domain.as_ref().to_string(),
+            value: domain.clone(),
         };
         let new_order = ApiNewOrder {
             identifiers: vec![identifier],
@@ -291,6 +293,7 @@ impl<'a> Account<'a> {
             account: self,
             inner: order,
             location,
+            domain,
         })
     }
 }
@@ -300,6 +303,7 @@ pub struct Order<'a> {
     account: &'a Account<'a>,
     inner: ApiOrder<()>,
     location: Uri,
+    domain: String,
 }
 
 impl<'a> Order<'a> {
@@ -317,6 +321,32 @@ impl<'a> Order<'a> {
         Ok(self)
     }
 
+    pub async fn finalize(&mut self) -> Result<(), DirectoryError> {
+        // todo: remove unwrap
+        let inner = &mut self.inner;
+        let finalize = &inner.finalize;
+
+        let account = self.account;
+        let directory = &account.directory;
+
+        let cert = directory.crypto.certificate(self.domain.clone())?;
+        let csr = cert.csr_der()?;
+        let csr = base64::encode_config(csr, base64::URL_SAFE_NO_PAD);
+        let order_finalization = ApiOrderFinalization { csr };
+
+        let protected = directory
+            .protect(finalize, &account.key_pair, &account.kid)
+            .await?;
+
+        let order_finalization = directory.serialize_and_base64_encode(&order_finalization)?;
+        let signed = directory.sign(&account.key_pair, protected, order_finalization)?;
+
+        let order = directory.server.finalize(finalize, signed).await?;
+        let _ = mem::replace(inner, order);
+
+        todo!()
+    }
+
     pub async fn authorizations(&self) -> Result<Vec<Authorization<'_>>, DirectoryError> {
         let inner = &self.inner;
 
@@ -324,8 +354,7 @@ impl<'a> Order<'a> {
 
         for authorization in &self.inner.authorizations {
             // todo: fix this unwrap
-            let location = Uri::try_from(authorization).unwrap();
-            let authorization = self.authorization(&location).await?;
+            let authorization = self.authorization(authorization).await?;
             authorizations.push(authorization);
         }
 
@@ -475,7 +504,6 @@ impl Serialize for AccountKey<'_> {
 mod tests {
     use super::*;
     use std::error::Error;
-    use std::time::Duration;
     use testcontainers::clients::Cli;
 
     use mysql::MySQL;
@@ -485,7 +513,7 @@ mod tests {
     #[tokio::test]
     async fn test() -> Result<(), Box<dyn Error + Send + Sync + 'static>> {
         let docker = Cli::default();
-        let webserver = WebserverWithApi::new(&docker, "directory")?;
+
         // todo: rename docker network because its the same as the other;
         let _mysql = MySQL::run(&docker, "directory");
         let stepca = Stepca::run(&docker, "directory");
@@ -501,18 +529,21 @@ mod tests {
             .build()
             .await?;
         let account = directory.new_account("test@test.com").await?;
-        let order = account.new_order("nginx").await?;
+        let mut order = account.new_order("nginx").await?;
         let mut authorizations = order.authorizations().await?;
         let authorization = &mut authorizations[0];
         let challenge = authorization.http_challenge().unwrap();
 
+        let webserver = WebserverWithApi::new(&docker, "directory")?;
         webserver
             .put_text(challenge.token(), challenge.proof()?)
             .await?;
 
         challenge.validate().await?;
         authorization.update().await?;
-        //tokio::time::sleep(Duration::from_secs(20)).await;
+
+        order.finalize().await?;
+
         panic!("{:?}", order.inner);
     }
 }

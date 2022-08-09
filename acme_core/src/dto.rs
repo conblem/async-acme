@@ -250,6 +250,12 @@ pub struct ApiNewOrder {
 
 #[derive(Clone, Serialize, Deserialize, Debug)]
 #[serde(rename_all = "camelCase")]
+pub struct ApiOrderFinalization {
+    pub csr: String,
+}
+
+#[derive(Clone, Serialize, Deserialize, Debug)]
+#[serde(rename_all = "camelCase")]
 pub struct ApiOrder<E> {
     pub status: ApiOrderStatus,
     #[serde(skip_serializing_if = "Option::is_none", with = "rfc3339_option")]
@@ -260,10 +266,10 @@ pub struct ApiOrder<E> {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub not_after: Option<String>,
     pub error: Option<E>,
-    pub authorizations: Vec<String>,
-    pub finalize: String,
+    pub authorizations: Vec<Uri>,
+    pub finalize: Uri,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub certificate: Option<String>,
+    pub certificate: Option<Uri>,
 }
 
 #[derive(Clone, Serialize, Deserialize, Debug)]

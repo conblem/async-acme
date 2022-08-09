@@ -71,5 +71,9 @@ pub trait AcmeServer: Send + Sync {
         req: SignedRequest<()>,
     ) -> Result<ApiChallenge, Self::Error>;
 
-    async fn finalize(&self) -> Result<(), Self::Error>;
+    async fn finalize(
+        &self,
+        uri: &Uri,
+        req: SignedRequest<ApiOrderFinalization>,
+    ) -> Result<ApiOrder<()>, Self::Error>;
 }

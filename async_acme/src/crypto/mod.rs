@@ -1,8 +1,9 @@
+use rcgen::DistinguishedName;
 use ring::digest::{digest, Digest, SHA256};
 use ring::error::{KeyRejected, Unspecified};
-use ring::pkcs8::Document;
 use ring::rand::SystemRandom;
 use ring::signature::{EcdsaKeyPair, Signature, ECDSA_P384_SHA384_FIXED_SIGNING};
+use rustls::PrivateKey;
 use serde::ser;
 use serde::ser::SerializeStruct;
 use serde::{Serialize, Serializer};
@@ -14,13 +15,20 @@ use thiserror::Error;
 pub trait Crypto: Sized {
     type Error: Error + 'static;
     type KeyPair: KeyPair<Error = Self::Error>;
-    type Signer: Signer<Error = Self::Error, KeyPair = Self::KeyPair>;
+    type Signature;
     type Thumbprint: AsRef<[u8]>;
+    type Certificate: Certificate<KeyPair = Self::KeyPair>;
 
-    fn signer<T: Into<Option<usize>>>(self, size_hint: T) -> Self::Signer;
-    fn thumbprint<T: AsRef<[u8]>>(self, buf: T) -> Result<Self::Thumbprint, Self::Error>;
+    fn sign<T: AsRef<[u8]>>(
+        &self,
+        key_pair: &Self::KeyPair,
+        buf: T,
+    ) -> Result<Self::Signature, Self::Error>;
+    fn thumbprint<T: AsRef<[u8]>>(&self, buf: T) -> Result<Self::Thumbprint, Self::Error>;
 
-    fn private_key(self) -> Result<Self::KeyPair, Self::Error>;
+    fn private_key(&self) -> Result<Self::KeyPair, Self::Error>;
+
+    fn certificate(&self, domain: String) -> Result<Self::Certificate, Self::Error>;
 }
 
 pub trait KeyPair {
@@ -30,15 +38,17 @@ pub trait KeyPair {
     fn algorithm(&self) -> &'static str;
 
     fn public_key(&self) -> &Self::PublicKey;
+
+    fn as_der(&self) -> &[u8];
 }
 
-pub trait Signer {
+pub trait Certificate: Sized {
     type Error: Error + 'static;
-    type KeyPair: KeyPair;
-    type Signature: AsRef<[u8]>;
+    type CSR: AsRef<[u8]>;
+    type KeyPair: KeyPair<Error = Self::Error>;
 
-    fn update<T: AsRef<[u8]>>(&mut self, buf: T);
-    fn finish(self, key_pair: &Self::KeyPair) -> Result<Self::Signature, Self::Error>;
+    fn csr_der(&self) -> Result<Self::CSR, Self::Error>;
+    fn key_pair(&self) -> &Self::KeyPair;
 }
 
 #[derive(Debug)]
@@ -95,41 +105,59 @@ impl RingCrypto {
     }
 }
 
-impl<'a> Crypto for &'a RingCrypto {
+impl<'a> Crypto for RingCrypto {
     type Error = RingCryptoError;
     type KeyPair = RingKeyPair;
-    type Signer = RingSigner<'a>;
+    type Signature = Signature;
     type Thumbprint = Digest;
+    type Certificate = RingCertificate;
 
-    fn signer<T: Into<Option<usize>>>(self, size_hint: T) -> Self::Signer {
-        let size_hint = size_hint.into().unwrap_or_default();
-        RingSigner {
-            inner: Vec::with_capacity(size_hint),
-            random: &self.random,
-        }
+    fn sign<T: AsRef<[u8]>>(
+        &self,
+        key_pair: &Self::KeyPair,
+        buf: T,
+    ) -> Result<Self::Signature, Self::Error> {
+        let signature = key_pair.inner.sign(&self.random, buf.as_ref())?;
+        Ok(signature)
     }
 
-    fn thumbprint<T: AsRef<[u8]>>(self, buf: T) -> Result<Self::Thumbprint, Self::Error> {
+    fn thumbprint<T: AsRef<[u8]>>(&self, buf: T) -> Result<Self::Thumbprint, Self::Error> {
         let digest = digest(&SHA256, buf.as_ref());
         Ok(digest)
     }
 
-    fn private_key(self) -> Result<Self::KeyPair, Self::Error> {
-        let document =
+    fn private_key(&self) -> Result<Self::KeyPair, Self::Error> {
+        let private_der =
             EcdsaKeyPair::generate_pkcs8(&ECDSA_P384_SHA384_FIXED_SIGNING, &self.random)?;
-        let inner = EcdsaKeyPair::from_pkcs8(&ECDSA_P384_SHA384_FIXED_SIGNING, document.as_ref())?;
+        let inner =
+            EcdsaKeyPair::from_pkcs8(&ECDSA_P384_SHA384_FIXED_SIGNING, private_der.as_ref())?;
         let public_key = RingKeyPair::export_public_key(&inner)?;
 
         Ok(RingKeyPair {
-            _document: document,
+            private_der: PrivateKey(Vec::from(private_der.as_ref())),
             inner,
             public_key,
         })
     }
+
+    fn certificate(&self, domain: String) -> Result<Self::Certificate, Self::Error> {
+        let key_pair = self.private_key()?;
+        // todo: remove unwrap
+        let rcgen_key_pair = rcgen::KeyPair::from_der(key_pair.private_der.0.as_ref()).unwrap();
+
+        let mut params = rcgen::CertificateParams::new([domain]);
+        params.distinguished_name = DistinguishedName::new();
+        params.alg = &rcgen::PKCS_ECDSA_P384_SHA384;
+        params.key_pair = Some(rcgen_key_pair);
+
+        // todo: remove unwrap
+        let cert = rcgen::Certificate::from_params(params).unwrap();
+        Ok(RingCertificate { key_pair, cert })
+    }
 }
 
 pub struct RingKeyPair {
-    _document: Document,
+    private_der: PrivateKey,
     inner: EcdsaKeyPair,
     public_key: RingPublicKey,
 }
@@ -190,6 +218,10 @@ impl KeyPair for RingKeyPair {
     fn public_key(&self) -> &Self::PublicKey {
         &self.public_key
     }
+
+    fn as_der(&self) -> &[u8] {
+        self.private_der.0.as_ref()
+    }
 }
 
 #[derive(Debug)]
@@ -218,23 +250,23 @@ impl Serialize for RingPublicKey {
     }
 }
 
-pub struct RingSigner<'a> {
-    random: &'a SystemRandom,
-    inner: Vec<u8>,
+pub struct RingCertificate {
+    cert: rcgen::Certificate,
+    key_pair: RingKeyPair,
 }
 
-impl<'a> Signer for RingSigner<'a> {
+impl Certificate for RingCertificate {
     type Error = RingCryptoError;
+    type CSR = Vec<u8>;
     type KeyPair = RingKeyPair;
-    type Signature = Signature;
 
-    fn update<T: AsRef<[u8]>>(&mut self, buf: T) {
-        self.inner.extend_from_slice(buf.as_ref());
+    fn csr_der(&self) -> Result<Self::CSR, Self::Error> {
+        // todo: remove unwrap
+        Ok(self.cert.serialize_request_der().unwrap())
     }
 
-    fn finish(self, key_pair: &Self::KeyPair) -> Result<Self::Signature, Self::Error> {
-        let signature = key_pair.inner.sign(self.random, &self.inner)?;
-        Ok(signature)
+    fn key_pair(&self) -> &Self::KeyPair {
+        &self.key_pair
     }
 }
 

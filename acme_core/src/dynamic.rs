@@ -1,6 +1,6 @@
 use crate::{
     AcmeServer, ApiAccount, ApiAuthorization, ApiChallenge, ApiDirectory, ApiNewOrder, ApiOrder,
-    SignedRequest, Uri,
+    ApiOrderFinalization, SignedRequest, Uri,
 };
 use async_trait::async_trait;
 use std::any::Any;
@@ -102,7 +102,12 @@ pub trait DynAcmeServer: Send + Sync + 'static {
     ) -> Result<ApiChallenge, DynError>;
 
     #[doc(hidden)]
-    async fn finalize_dyn(&self, _: &dyn Private) -> Result<(), DynError>;
+    async fn finalize_dyn(
+        &self,
+        uri: &Uri,
+        req: SignedRequest<ApiOrderFinalization>,
+        _: &dyn Private,
+    ) -> Result<ApiOrder<()>, DynError>;
 
     #[doc(hidden)]
     fn box_clone(&self, _: &dyn Private) -> Box<dyn DynAcmeServer>;
@@ -181,8 +186,13 @@ impl<T: AcmeServer + Clone + Debug + Send + Sync + 'static> DynAcmeServer for T 
         Ok(self.validate_challenge(uri, req).await?)
     }
 
-    async fn finalize_dyn(&self, _: &dyn Private) -> Result<(), DynError> {
-        Ok(self.finalize().await?)
+    async fn finalize_dyn(
+        &self,
+        uri: &Uri,
+        req: SignedRequest<ApiOrderFinalization>,
+        _: &dyn Private,
+    ) -> Result<ApiOrder<()>, DynError> {
+        Ok(self.finalize(uri, req).await?)
     }
 
     fn box_clone(&self, _: &dyn Private) -> Box<dyn DynAcmeServer> {
@@ -265,8 +275,12 @@ impl AcmeServer for dyn DynAcmeServer {
         Ok(self.validate_challenge_dyn(uri, req, &PrivateImpl).await?)
     }
 
-    async fn finalize(&self) -> Result<(), Self::Error> {
-        Ok(self.finalize_dyn(&PrivateImpl).await?)
+    async fn finalize(
+        &self,
+        uri: &Uri,
+        req: SignedRequest<ApiOrderFinalization>,
+    ) -> Result<ApiOrder<()>, Self::Error> {
+        Ok(self.finalize_dyn(uri, req, &PrivateImpl).await?)
     }
 }
 
