@@ -110,6 +110,14 @@ pub trait DynAcmeServer: Send + Sync + 'static {
     ) -> Result<ApiOrder<()>, DynError>;
 
     #[doc(hidden)]
+    async fn download_certificate_dyn(
+        &self,
+        uri: &Uri,
+        req: SignedRequest<()>,
+        _: &dyn Private,
+    ) -> Result<Vec<u8>, DynError>;
+
+    #[doc(hidden)]
     fn box_clone(&self, _: &dyn Private) -> Box<dyn DynAcmeServer>;
 
     fn as_any(&self) -> &dyn Any;
@@ -193,6 +201,15 @@ impl<T: AcmeServer + Clone + Debug + Send + Sync + 'static> DynAcmeServer for T 
         _: &dyn Private,
     ) -> Result<ApiOrder<()>, DynError> {
         Ok(self.finalize(uri, req).await?)
+    }
+
+    async fn download_certificate_dyn(
+        &self,
+        uri: &Uri,
+        req: SignedRequest<()>,
+        _: &dyn Private,
+    ) -> Result<Vec<u8>, DynError> {
+        Ok(self.download_certificate(uri, req).await?)
     }
 
     fn box_clone(&self, _: &dyn Private) -> Box<dyn DynAcmeServer> {
@@ -281,6 +298,16 @@ impl AcmeServer for dyn DynAcmeServer {
         req: SignedRequest<ApiOrderFinalization>,
     ) -> Result<ApiOrder<()>, Self::Error> {
         Ok(self.finalize_dyn(uri, req, &PrivateImpl).await?)
+    }
+
+    async fn download_certificate(
+        &self,
+        uri: &Uri,
+        req: SignedRequest<()>,
+    ) -> Result<Vec<u8>, Self::Error> {
+        Ok(self
+            .download_certificate_dyn(uri, req, &PrivateImpl)
+            .await?)
     }
 }
 

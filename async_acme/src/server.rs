@@ -185,7 +185,7 @@ impl<C: Connect> HyperAcmeServer<C> {
         Ok(Some(location))
     }
 
-    async fn post<T: Serialize, R>(
+    async fn post_and_deserialize<T: Serialize, R>(
         &self,
         body: T,
         uri: &Uri,
@@ -193,6 +193,16 @@ impl<C: Connect> HyperAcmeServer<C> {
     where
         R: for<'a> Deserialize<'a>,
     {
+        let (res, location) = self.post(body, uri).await?;
+        let res = serde_json::from_slice(res.as_ref())?;
+        Ok((res, location))
+    }
+
+    async fn post<T: Serialize>(
+        &self,
+        body: T,
+        uri: &Uri,
+    ) -> Result<(Bytes, Option<Uri>), HyperAcmeServerError> {
         let body = serde_json::to_vec(&body)?;
 
         let mut req = Request::post(uri).body(Body::from(body))?;
@@ -205,8 +215,8 @@ impl<C: Connect> HyperAcmeServer<C> {
         self.handle_if_error(&res, &body)?;
 
         let location = self.extract_location(res.headers_mut())?;
-        let res = serde_json::from_slice(body.as_ref())?;
-        Ok((res, location))
+
+        Ok((body, location))
     }
 }
 
@@ -240,7 +250,9 @@ impl<C: Connect> AcmeServer for HyperAcmeServer<C> {
         &self,
         req: SignedRequest<ApiAccount<()>>,
     ) -> Result<(ApiAccount<()>, Uri), Self::Error> {
-        let (account, kid) = self.post(req, &self.directory.new_account).await?;
+        let (account, kid) = self
+            .post_and_deserialize(req, &self.directory.new_account)
+            .await?;
 
         let kid = match kid {
             Some(kid) => kid,
@@ -255,7 +267,7 @@ impl<C: Connect> AcmeServer for HyperAcmeServer<C> {
         uri: &Uri,
         req: SignedRequest<()>,
     ) -> Result<ApiAccount<()>, Self::Error> {
-        let (account, _) = self.post(req, uri).await?;
+        let (account, _) = self.post_and_deserialize(req, uri).await?;
         Ok(account)
     }
 
@@ -263,7 +275,9 @@ impl<C: Connect> AcmeServer for HyperAcmeServer<C> {
         &self,
         req: SignedRequest<ApiNewOrder>,
     ) -> Result<(ApiOrder<()>, Uri), Self::Error> {
-        let (order, location) = self.post(req, &self.directory.new_order).await?;
+        let (order, location) = self
+            .post_and_deserialize(req, &self.directory.new_order)
+            .await?;
 
         let location = match location {
             Some(location) => location,
@@ -278,7 +292,7 @@ impl<C: Connect> AcmeServer for HyperAcmeServer<C> {
         uri: &Uri,
         req: SignedRequest<()>,
     ) -> Result<ApiOrder<()>, Self::Error> {
-        let (order, _) = self.post(req, uri).await?;
+        let (order, _) = self.post_and_deserialize(req, uri).await?;
         Ok(order)
     }
 
@@ -288,7 +302,7 @@ impl<C: Connect> AcmeServer for HyperAcmeServer<C> {
         uri: &Uri,
         req: SignedRequest<()>,
     ) -> Result<ApiAuthorization, Self::Error> {
-        let (authorization, _) = self.post(req, uri).await?;
+        let (authorization, _) = self.post_and_deserialize(req, uri).await?;
         Ok(authorization)
     }
 
@@ -297,7 +311,7 @@ impl<C: Connect> AcmeServer for HyperAcmeServer<C> {
         uri: &Uri,
         req: SignedRequest<()>,
     ) -> Result<ApiChallenge, Self::Error> {
-        let (challenge, _) = self.post(req, uri).await?;
+        let (challenge, _) = self.post_and_deserialize(req, uri).await?;
         Ok(challenge)
     }
 
@@ -306,8 +320,17 @@ impl<C: Connect> AcmeServer for HyperAcmeServer<C> {
         uri: &Uri,
         req: SignedRequest<ApiOrderFinalization>,
     ) -> Result<ApiOrder<()>, Self::Error> {
-        let (order, _) = self.post(req, uri).await?;
+        let (order, _) = self.post_and_deserialize(req, uri).await?;
         Ok(order)
+    }
+
+    async fn download_certificate(
+        &self,
+        uri: &Uri,
+        req: SignedRequest<()>,
+    ) -> Result<Vec<u8>, Self::Error> {
+        let (res, _) = self.post(req, uri).await?;
+        Ok(res.to_vec())
     }
 }
 

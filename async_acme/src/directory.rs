@@ -321,7 +321,7 @@ impl<'a> Order<'a> {
         Ok(self)
     }
 
-    pub async fn finalize(&mut self) -> Result<(), DirectoryError> {
+    pub async fn finalize(&mut self) -> Result<Vec<u8>, DirectoryError> {
         // todo: remove unwrap
         let inner = &mut self.inner;
         let finalize = &inner.finalize;
@@ -344,7 +344,19 @@ impl<'a> Order<'a> {
         let order = directory.server.finalize(finalize, signed).await?;
         let _ = mem::replace(inner, order);
 
-        todo!()
+        // todo: remove unwrap
+        let certificate = inner.certificate.as_ref().unwrap();
+
+        let protected = directory
+            .protect(certificate, &account.key_pair, &account.kid)
+            .await?;
+        let signed: SignedRequest<()> = directory.sign(&account.key_pair, protected, None)?;
+
+        let certificate = directory
+            .server
+            .download_certificate(certificate, signed)
+            .await?;
+        Ok(certificate)
     }
 
     pub async fn authorizations(&self) -> Result<Vec<Authorization<'_>>, DirectoryError> {
@@ -542,7 +554,9 @@ mod tests {
         challenge.validate().await?;
         authorization.update().await?;
 
-        order.finalize().await?;
+        let res = order.finalize().await?;
+        let res = String::from_utf8(res)?;
+        println!("{}", res);
 
         panic!("{:?}", order.inner);
     }

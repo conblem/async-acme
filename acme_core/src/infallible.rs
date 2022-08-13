@@ -76,4 +76,12 @@ impl AcmeServer for Infallible {
     ) -> Result<ApiOrder<()>, Self::Error> {
         match *self {}
     }
+
+    async fn download_certificate(
+        &self,
+        _: &Uri,
+        _: SignedRequest<()>,
+    ) -> Result<Vec<u8>, Self::Error> {
+        match *self {}
+    }
 }

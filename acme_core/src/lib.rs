@@ -76,4 +76,10 @@ pub trait AcmeServer: Send + Sync {
         uri: &Uri,
         req: SignedRequest<ApiOrderFinalization>,
     ) -> Result<ApiOrder<()>, Self::Error>;
+
+    async fn download_certificate(
+        &self,
+        uri: &Uri,
+        req: SignedRequest<()>,
+    ) -> Result<Vec<u8>, Self::Error>;
 }
