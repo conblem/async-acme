@@ -115,7 +115,7 @@ impl<S: AcmeServerBuilder> DirectoryBuilder<Finished, S>
 where
     S::Server: Clone + Debug,
 {
-    async fn build(self) -> Result<Directory, <S::Server as AcmeServer>::Error> {
+    pub async fn build(self) -> Result<Directory, <S::Server as AcmeServer>::Error> {
         let server = self.builder.unwrap().build().await?;
         Ok(Directory {
             crypto: RingCrypto::new(),
