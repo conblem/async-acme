@@ -14,11 +14,11 @@ pub trait AcmeServerBuilder: Send + Sync + 'static {
     async fn build(&mut self) -> Result<Self::Server, <Self::Server as AcmeServer>::Error>;
 }
 
-pub trait AmceServerExt: AcmeServer {
+pub trait AcmeServerExt: AcmeServer {
     fn builder() -> Self::Builder;
 }
 
-impl<A> AmceServerExt for A
+impl<A> AcmeServerExt for A
 where
     A: AcmeServer,
     A::Builder: Default,

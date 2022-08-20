@@ -1,5 +1,5 @@
 use acme_core::{
-    AcmeServer, AcmeServerBuilder, AmceServerExt, ApiAccount, ApiAuthorization, ApiChallenge,
+    AcmeServer, AcmeServerBuilder, AcmeServerExt, ApiAccount, ApiAuthorization, ApiChallenge,
     ApiChallengeType, ApiIdentifier, ApiIdentifierType, ApiNewOrder, ApiOrder,
     ApiOrderFinalization, DynAcmeServer, ErrorWrapper, Payload, SignedRequest, Uri,
 };

@@ -127,17 +127,17 @@ pub struct HyperAcmeServer<C> {
 }
 
 impl<C> HyperAcmeServerBuilder<C> {
-    pub(crate) fn connector(&mut self, connector: C) -> &mut Self {
+    pub fn connector(&mut self, connector: C) -> &mut Self {
         self.connector = Some(connector);
         self
     }
 
-    pub(crate) fn le_staging(&mut self) -> &mut Self {
+    pub fn le_staging(&mut self) -> &mut Self {
         self.endpoint = Endpoint::LetsEncryptStaging;
         self
     }
 
-    pub(crate) fn url<T: Into<Cow<'static, str>>>(&mut self, url: T) -> &mut Self {
+    pub fn url<T: Into<Cow<'static, str>>>(&mut self, url: T) -> &mut Self {
         self.endpoint = Endpoint::from(url);
         self
     }
@@ -336,7 +336,7 @@ impl<C: Connect> AcmeServer for HyperAcmeServer<C> {
 
 #[cfg(test)]
 mod tests {
-    use acme_core::AmceServerExt;
+    use acme_core::AcmeServerExt;
     use std::convert::TryFrom;
     use std::error::Error;
     use testcontainers::clients::Cli;
