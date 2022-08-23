@@ -100,8 +100,7 @@ impl Serialize for Uri {
     where
         S: Serializer,
     {
-        let uri = format!("{}", &self.0);
-        serializer.serialize_str(&uri)
+        serializer.serialize_str(&self.0.to_string())
     }
 }
 
