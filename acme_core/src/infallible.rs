@@ -42,6 +42,14 @@ impl AcmeServer for Infallible {
         match *self {}
     }
 
+    async fn update_account(
+        &self,
+        _: &Uri,
+        _: SignedRequest<ApiAccount<()>>,
+    ) -> Result<ApiAccount<()>, Self::Error> {
+        match *self {}
+    }
+
     async fn new_order(
         &self,
         _: SignedRequest<ApiNewOrder>,

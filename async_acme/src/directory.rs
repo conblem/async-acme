@@ -267,6 +267,33 @@ impl<'a> Account<'a> {
         Ok(self)
     }
 
+    // todo: rename variables to more useful names
+    pub async fn change_mail<T: AsRef<str>>(
+        &mut self,
+        mail: T,
+    ) -> Result<&mut Account<'a>, DirectoryError> {
+        let directory = &self.directory;
+        let key_pair = &self.key_pair;
+        let kid = &self.kid;
+
+        let protected = directory.protect(kid, key_pair, kid).await?;
+
+        // copy of inner so in case of an error we still have the old object
+        let new_account = ApiAccount::<()> {
+            contact: vec![format!("mailto:{}", mail.as_ref())],
+            ..Default::default()
+        };
+
+        let account = directory.serialize_and_base64_encode(&new_account)?;
+        let signed = directory.sign(key_pair, protected, account)?;
+
+        let account = directory.server.update_account(kid, signed).await?;
+
+        let _ = mem::replace(&mut self.inner, account);
+
+        Ok(self)
+    }
+
     pub async fn new_order<T: Into<String>>(&self, domain: T) -> Result<Order<'_>, DirectoryError> {
         let domain = domain.into();
         let identifier = ApiIdentifier {
@@ -540,7 +567,9 @@ mod tests {
             .default()
             .build()
             .await?;
-        let account = directory.new_account("test@test.com").await?;
+        let mut account = directory.new_account("test@test.com").await?;
+        account.change_mail("test2@test.com").await?;
+
         let mut order = account.new_order("nginx").await?;
         let mut authorizations = order.authorizations().await?;
         let authorization = &mut authorizations[0];

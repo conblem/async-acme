@@ -271,6 +271,15 @@ impl<C: Connect> AcmeServer for HyperAcmeServer<C> {
         Ok(account)
     }
 
+    async fn update_account(
+        &self,
+        uri: &Uri,
+        req: SignedRequest<ApiAccount<()>>,
+    ) -> Result<ApiAccount<()>, Self::Error> {
+        let (account, _) = self.post_and_deserialize(req, uri).await?;
+        Ok(account)
+    }
+
     async fn new_order(
         &self,
         req: SignedRequest<ApiNewOrder>,

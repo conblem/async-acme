@@ -71,6 +71,14 @@ pub trait DynAcmeServer: Send + Sync + 'static {
     ) -> Result<ApiAccount<()>, DynError>;
 
     #[doc(hidden)]
+    async fn update_account_dyn(
+        &self,
+        uri: &Uri,
+        req: SignedRequest<ApiAccount<()>>,
+        _: &dyn Private,
+    ) -> Result<ApiAccount<()>, DynError>;
+
+    #[doc(hidden)]
     async fn new_order_dyn(
         &self,
         req: SignedRequest<ApiNewOrder>,
@@ -157,6 +165,15 @@ impl<T: AcmeServer + Clone + Debug + Send + Sync + 'static> DynAcmeServer for T 
         _: &dyn Private,
     ) -> Result<ApiAccount<()>, DynError> {
         Ok(self.get_account(uri, req).await?)
+    }
+
+    async fn update_account_dyn(
+        &self,
+        uri: &Uri,
+        req: SignedRequest<ApiAccount<()>>,
+        _: &dyn Private,
+    ) -> Result<ApiAccount<()>, DynError> {
+        Ok(self.update_account(uri, req).await?)
     }
 
     async fn new_order_dyn(
@@ -259,6 +276,14 @@ impl AcmeServer for dyn DynAcmeServer {
         req: SignedRequest<()>,
     ) -> Result<ApiAccount<()>, Self::Error> {
         Ok(self.get_account_dyn(uri, req, &PrivateImpl).await?)
+    }
+
+    async fn update_account(
+        &self,
+        uri: &Uri,
+        req: SignedRequest<ApiAccount<()>>,
+    ) -> Result<ApiAccount<()>, Self::Error> {
+        Ok(self.update_account_dyn(uri, req, &PrivateImpl).await?)
     }
 
     async fn new_order(
