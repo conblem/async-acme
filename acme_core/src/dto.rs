@@ -1,5 +1,5 @@
 use http::uri::InvalidUri;
-use serde::de::{self, Error, Visitor};
+use serde::de::{self, Error as DeError, Visitor};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use std::convert::{TryFrom, TryInto};
 use std::fmt;
@@ -323,7 +323,7 @@ impl<'de> Deserialize<'de> for ApiChallengeType {
             "dns-01" => Ok(Self::DNS),
             "tls-alpn-01" => Ok(Self::TLS),
             "http-01" => Ok(Self::HTTP),
-            _ => Err(D::Error::custom("invalid challenge type")),
+            _ => Err(DeError::custom("invalid challenge type")),
         }
     }
 }
@@ -356,8 +356,127 @@ pub struct ApiChallenge {
 #[serde(rename_all = "camelCase")]
 pub struct ApiError {
     #[serde(rename = "type")]
-    pub type_val: String,
+    pub type_val: ApiErrorType,
     pub detail: String,
+    pub subproblems: Vec<ApiSubproblem>,
+}
+
+#[derive(Clone, Serialize, Deserialize, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct ApiSubproblem {
+    #[serde(rename = "type")]
+    pub type_val: ApiErrorType,
+    pub detail: String,
+    pub identifier: ApiIdentifier,
+}
+
+#[derive(Clone, Debug)]
+pub enum ApiErrorType {
+    AccountDoesNotExist,
+    AlreadyRevoked,
+    BadCSR,
+    BadNonce,
+    BadPublicKey,
+    BadRevocationReason,
+    BadSignatureAlgorithm,
+    CAA,
+    Compound,
+    Connection,
+    DNS,
+    ExternalAccountRequired,
+    IncorrectResponse,
+    InvalidContact,
+    Malformed,
+    OrderNotReady,
+    RateLimited,
+    RejectedIdentifier,
+    ServerInternal,
+    TLS,
+    Unauthorized,
+    UnsupportedContact,
+    UnsupportedIdentifier,
+    UserActionRequired,
+    Other(String),
+}
+
+impl AsRef<str> for ApiErrorType {
+    fn as_ref(&self) -> &str {
+        match self {
+            Self::AccountDoesNotExist => "accountDoesNotExist",
+            Self::AlreadyRevoked => "alreadyRevoked",
+            Self::BadCSR => "badCSR",
+            Self::BadNonce => "badNonce",
+            Self::BadPublicKey => "badPublicKey",
+            Self::BadRevocationReason => "badRevocationReason",
+            Self::BadSignatureAlgorithm => "badSignatureAlgorithm",
+            Self::CAA => "caa",
+            Self::Compound => "compound",
+            Self::Connection => "connection",
+            Self::DNS => "dns",
+            Self::ExternalAccountRequired => "externalAccountRequired",
+            Self::IncorrectResponse => "incorrectResponse",
+            Self::InvalidContact => "invalidContact",
+            Self::Malformed => "malformed",
+            Self::OrderNotReady => "orderNotReady",
+            Self::RateLimited => "rateLimited",
+            Self::RejectedIdentifier => "rejectedIdentifier",
+            Self::ServerInternal => "serverInternal",
+            Self::TLS => "tls",
+            Self::Unauthorized => "unauthorized",
+            Self::UnsupportedContact => "unsupportedContact",
+            Self::UnsupportedIdentifier => "unsupportedIdentifier",
+            Self::UserActionRequired => "userActionRequired",
+            Self::Other(inner) => inner.as_str(),
+        }
+    }
+}
+
+impl Serialize for ApiErrorType {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        serializer.serialize_str(self.as_ref())
+    }
+}
+
+impl<'de> Deserialize<'de> for ApiErrorType {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let this = <&'de str>::deserialize(deserializer)?;
+
+        let this = match this {
+            "accountDoesNotExist" => Self::AccountDoesNotExist,
+            "alreadyRevoked" => Self::AlreadyRevoked,
+            "badCSR" => Self::BadCSR,
+            "badNonce" => Self::BadNonce,
+            "badPublicKey" => Self::BadPublicKey,
+            "badRevocationReason" => Self::BadRevocationReason,
+            "badSignatureAlgorithm" => Self::BadSignatureAlgorithm,
+            "caa" => Self::CAA,
+            "compound" => Self::Compound,
+            "connection" => Self::Connection,
+            "dns" => Self::DNS,
+            "externalAccountRequired" => Self::ExternalAccountRequired,
+            "incorrectResponse" => Self::IncorrectResponse,
+            "invalidContact" => Self::InvalidContact,
+            "malformed" => Self::Malformed,
+            "orderNotReady" => Self::OrderNotReady,
+            "rateLimited" => Self::RateLimited,
+            "rejectedIdentifier" => Self::RejectedIdentifier,
+            "serverInternal" => Self::ServerInternal,
+            "tls" => Self::TLS,
+            "unauthorized" => Self::Unauthorized,
+            "unsupportedContact" => Self::UnsupportedContact,
+            "unsupportedIdentifier" => Self::UnsupportedIdentifier,
+            "userActionRequired" => Self::UserActionRequired,
+            this => Self::Other(this.to_string()),
+        };
+
+        Ok(this)
+    }
 }
 
 #[cfg(test)]

@@ -158,7 +158,7 @@ impl Directory {
         };
 
         let protected = Protected {
-            nonce,
+            nonce: Some(nonce),
             alg,
             url,
             jwk,
@@ -504,16 +504,21 @@ impl<'a> Challenge<'a, Http> {
 
 struct Protected<'a> {
     alg: &'static str,
-    nonce: String,
+    nonce: Option<String>,
     url: &'a Uri,
     jwk: AccountKey<'a>,
 }
 
 impl Serialize for Protected<'_> {
     fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        let mut serializer = serializer.serialize_struct("Protected", 4)?;
+        let mut serializer = match &self.nonce {
+            Some(_) => serializer.serialize_struct("Protected", 4)?,
+            None => serializer.serialize_struct("Protected", 3)?,
+        };
         serializer.serialize_field("alg", &self.alg)?;
-        serializer.serialize_field("nonce", &self.nonce)?;
+        if let Some(nonce) = &self.nonce {
+            serializer.serialize_field("nonce", nonce)?;
+        }
         serializer.serialize_field("url", &self.url)?;
 
         match &self.jwk {
