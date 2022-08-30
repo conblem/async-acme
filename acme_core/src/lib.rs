@@ -4,6 +4,7 @@ use std::error::Error;
 mod dto;
 mod dynamic;
 mod infallible;
+mod newpayload;
 
 pub use dto::*;
 pub use dynamic::*;

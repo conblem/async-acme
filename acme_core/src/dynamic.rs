@@ -431,6 +431,21 @@ mod tests {
             todo!()
         }
 
+        async fn update_account(
+            &self,
+            _: &Uri,
+            _: SignedRequest<ApiAccount<()>>,
+        ) -> Result<ApiAccount<()>, Self::Error> {
+            todo!()
+        }
+
+        async fn change_key<K: Send>(
+            &self,
+            _: SignedRequest<SignedRequest<ApiKeyChange<K>>>,
+        ) -> Result<(), Self::Error> {
+            todo!()
+        }
+
         async fn new_order(
             &self,
             _: SignedRequest<ApiNewOrder>,
@@ -458,11 +473,23 @@ mod tests {
             &self,
             _: &Uri,
             _: SignedRequest<()>,
-        ) -> Result<(), Self::Error> {
+        ) -> Result<ApiChallenge, Self::Error> {
             todo!()
         }
 
-        async fn finalize(&self) -> Result<(), Self::Error> {
+        async fn finalize(
+            &self,
+            _: &Uri,
+            _: SignedRequest<ApiOrderFinalization>,
+        ) -> Result<ApiOrder<()>, Self::Error> {
+            todo!()
+        }
+
+        async fn download_certificate(
+            &self,
+            _: &Uri,
+            _: SignedRequest<()>,
+        ) -> Result<Vec<u8>, Self::Error> {
             todo!()
         }
     }
