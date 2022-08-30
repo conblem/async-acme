@@ -54,6 +54,11 @@ pub trait AcmeServer: Send + Sync {
         req: SignedRequest<ApiAccount<()>>,
     ) -> Result<ApiAccount<()>, Self::Error>;
 
+    async fn change_key<K: Send>(
+        &self,
+        req: SignedRequest<SignedRequest<ApiKeyChange<K>>>,
+    ) -> Result<(), Self::Error>;
+
     async fn new_order(
         &self,
         req: SignedRequest<ApiNewOrder>,

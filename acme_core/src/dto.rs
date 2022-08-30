@@ -1,5 +1,6 @@
 use http::uri::InvalidUri;
 use serde::de::{self, Error as DeError, Visitor};
+use serde::ser::SerializeStruct;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use std::convert::{TryFrom, TryInto};
 use std::fmt;
@@ -11,11 +12,26 @@ const fn default_false() -> bool {
     false
 }
 
-#[derive(Serialize)]
 pub struct SignedRequest<P> {
     pub protected: String,
     pub payload: Payload<P>,
     pub signature: String,
+}
+
+// Implement serialize manually otherwise its only implemented if P is Serialize
+impl<P> Serialize for SignedRequest<P> {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        let mut serializer = serializer.serialize_struct("SignedRequest", 3)?;
+
+        serializer.serialize_field("protected", &self.protected)?;
+        serializer.serialize_field("payload", &self.payload)?;
+        serializer.serialize_field("signature", &self.signature)?;
+
+        serializer.end()
+    }
 }
 
 pub enum Payload<P> {
@@ -477,6 +493,13 @@ impl<'de> Deserialize<'de> for ApiErrorType {
 
         Ok(this)
     }
+}
+
+#[derive(Clone, Serialize, Deserialize, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct ApiKeyChange<K> {
+    account: Uri,
+    old_key: K,
 }
 
 #[cfg(test)]

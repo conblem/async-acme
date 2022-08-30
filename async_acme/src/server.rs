@@ -1,6 +1,6 @@
 use acme_core::{
     AcmeServer, AcmeServerBuilder, ApiAccount, ApiAuthorization, ApiChallenge, ApiDirectory,
-    ApiError, ApiNewOrder, ApiOrder, ApiOrderFinalization, SignedRequest, Uri,
+    ApiError, ApiKeyChange, ApiNewOrder, ApiOrder, ApiOrderFinalization, SignedRequest, Uri,
 };
 use async_trait::async_trait;
 use hyper::body::Bytes;
@@ -278,6 +278,17 @@ impl<C: Connect> AcmeServer for HyperAcmeServer<C> {
     ) -> Result<ApiAccount<()>, Self::Error> {
         let (account, _) = self.post_and_deserialize(req, uri).await?;
         Ok(account)
+    }
+
+    async fn change_key<K: Send>(
+        &self,
+        req: SignedRequest<SignedRequest<ApiKeyChange<K>>>,
+    ) -> Result<(), Self::Error> {
+        let ((), _) = self
+            .post_and_deserialize(req, &self.directory.key_change)
+            .await?;
+
+        Ok(())
     }
 
     async fn new_order(

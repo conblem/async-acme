@@ -1,6 +1,6 @@
 use crate::{
-    AcmeServer, ApiAccount, ApiAuthorization, ApiChallenge, ApiDirectory, ApiNewOrder, ApiOrder,
-    ApiOrderFinalization, SignedRequest, Uri,
+    AcmeServer, ApiAccount, ApiAuthorization, ApiChallenge, ApiDirectory, ApiKeyChange,
+    ApiNewOrder, ApiOrder, ApiOrderFinalization, Payload, SignedRequest, Uri,
 };
 use async_trait::async_trait;
 use std::any::Any;
@@ -8,6 +8,7 @@ use std::convert::Infallible;
 use std::error::Error;
 use std::fmt;
 use std::fmt::{Debug, Display, Formatter};
+use std::marker::PhantomData;
 
 type DynError = Box<dyn Error + Send + Sync + 'static>;
 
@@ -77,6 +78,12 @@ pub trait DynAcmeServer: Send + Sync + 'static {
         req: SignedRequest<ApiAccount<()>>,
         _: &dyn Private,
     ) -> Result<ApiAccount<()>, DynError>;
+
+    async fn change_key_dyn(
+        &self,
+        req: SignedRequest<SignedRequest<ApiKeyChange<()>>>,
+        _: &dyn Private,
+    ) -> Result<(), DynError>;
 
     #[doc(hidden)]
     async fn new_order_dyn(
@@ -174,6 +181,14 @@ impl<T: AcmeServer + Clone + Debug + Send + Sync + 'static> DynAcmeServer for T 
         _: &dyn Private,
     ) -> Result<ApiAccount<()>, DynError> {
         Ok(self.update_account(uri, req).await?)
+    }
+
+    async fn change_key_dyn(
+        &self,
+        req: SignedRequest<SignedRequest<ApiKeyChange<()>>>,
+        _: &dyn Private,
+    ) -> Result<(), DynError> {
+        Ok(self.change_key(req).await?)
     }
 
     async fn new_order_dyn(
@@ -284,6 +299,32 @@ impl AcmeServer for dyn DynAcmeServer {
         req: SignedRequest<ApiAccount<()>>,
     ) -> Result<ApiAccount<()>, Self::Error> {
         Ok(self.update_account_dyn(uri, req, &PrivateImpl).await?)
+    }
+
+    async fn change_key<K: Send>(
+        &self,
+        req: SignedRequest<SignedRequest<ApiKeyChange<K>>>,
+    ) -> Result<(), Self::Error> {
+        let SignedRequest {
+            payload,
+            signature,
+            protected,
+        } = req;
+
+        let payload: Payload<SignedRequest<ApiKeyChange<()>>> = match payload {
+            Payload::Get => Payload::Get,
+            Payload::Post { inner, .. } => Payload::Post {
+                inner,
+                phantom: PhantomData,
+            },
+        };
+        let req = SignedRequest {
+            payload,
+            signature,
+            protected,
+        };
+
+        Ok(self.change_key_dyn(req, &PrivateImpl).await?)
     }
 
     async fn new_order(
