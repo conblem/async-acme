@@ -1,7 +1,49 @@
-use erased_serde::Serialize as SerializeDyn;
-use serde::Serialize;
+use serde::{Serialize, Serializer};
 use std::any::Any;
 use std::ops::Deref;
+
+trait SerializeDyn: erased_serde::Serialize {
+    fn as_any(&self) -> &dyn Any;
+    fn box_clone(&self) -> Box<dyn SerializeDyn>;
+    fn into_any(self: Box<Self>) -> Box<dyn Any>;
+}
+
+impl Serialize for dyn SerializeDyn {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        erased_serde::serialize(self, serializer)
+    }
+}
+
+impl ToOwned for dyn SerializeDyn {
+    type Owned = Box<dyn SerializeDyn>;
+
+    fn to_owned(&self) -> Self::Owned {
+        self.box_clone()
+    }
+}
+
+impl<T: Serialize + Clone + 'static> SerializeDyn for T {
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+
+    fn box_clone(&self) -> Box<dyn SerializeDyn> {
+        Box::new(self.clone())
+    }
+
+    fn into_any(self: Box<Self>) -> Box<dyn Any> {
+        self
+    }
+}
+
+impl Clone for Box<dyn SerializeDyn> {
+    fn clone(&self) -> Self {
+        self.box_clone()
+    }
+}
 
 struct SignedRequest<P, D, S: Signature<Protected = P, Payload = D>> {
     protected: P,
@@ -49,6 +91,12 @@ impl ToOwned for dyn ProtectedDyn {
     }
 }
 
+impl Clone for Box<dyn ProtectedDyn> {
+    fn clone(&self) -> Self {
+        self.box_clone()
+    }
+}
+
 impl Protected for dyn ProtectedDyn {
     fn alg(&self) -> &str {
         self.alg_dyn()
@@ -61,50 +109,15 @@ impl<T: Protected + ?Sized> Protected for &T {
     }
 }
 
-trait Base64AndSerialize {
-    fn serialize(&self) -> String;
-}
-
-trait Base64AndSerializeDyn {
-    fn serialize_dyn(&self) -> String;
-    fn as_any(&self) -> &dyn Any;
-}
-
-impl<T> Base64AndSerializeDyn for T
-where
-    T: Base64AndSerialize + 'static,
-{
-    fn serialize_dyn(&self) -> String {
-        self.serialize()
-    }
-
-    fn as_any(&self) -> &dyn Any {
-        self
-    }
-}
-
-impl Base64AndSerialize for dyn Base64AndSerializeDyn {
-    fn serialize(&self) -> String {
-        self.deref().serialize_dyn()
-    }
-}
-
-impl<T: Base64AndSerialize + ?Sized> Base64AndSerialize for &T {
-    fn serialize(&self) -> String {
-        self.deref().serialize()
-    }
-}
-
 trait Signature {
     type Protected: Protected + ?Sized;
-    type Payload: Base64AndSerialize + ?Sized;
+    type Payload: Serialize + ?Sized;
 
     fn sign(&self, protected: &Self::Protected, payload: &Self::Payload) -> String;
 }
 
 trait SignatureDyn {
-    fn sign_dyn(&self, protected: &dyn ProtectedDyn, payload: &dyn Base64AndSerializeDyn)
-        -> String;
+    fn sign_dyn(&self, protected: &dyn ProtectedDyn, payload: &dyn SerializeDyn) -> String;
 }
 
 impl<T> SignatureDyn for T
@@ -113,11 +126,7 @@ where
     T::Protected: Sized + 'static,
     T::Payload: Sized + 'static,
 {
-    fn sign_dyn(
-        &self,
-        protected: &dyn ProtectedDyn,
-        payload: &dyn Base64AndSerializeDyn,
-    ) -> String {
+    fn sign_dyn(&self, protected: &dyn ProtectedDyn, payload: &dyn SerializeDyn) -> String {
         let protected = protected.as_any().downcast_ref().unwrap();
         let payload = payload.as_any().downcast_ref().unwrap();
         self.sign(protected, payload)
@@ -126,7 +135,7 @@ where
 
 impl Signature for dyn SignatureDyn {
     type Protected = dyn ProtectedDyn;
-    type Payload = dyn Base64AndSerializeDyn;
+    type Payload = dyn SerializeDyn;
 
     fn sign(&self, protected: &Self::Protected, payload: &Self::Payload) -> String {
         self.deref().sign_dyn(protected, payload)
@@ -156,15 +165,8 @@ mod tests {
         }
     }
 
-    #[derive(Serialize)]
+    #[derive(Serialize, Clone)]
     struct PayloadImpl(String);
-
-    impl Base64AndSerialize for PayloadImpl {
-        fn serialize(&self) -> String {
-            let json = serde_json::to_vec(self).unwrap();
-            base64::encode_config(json, URL_SAFE_NO_PAD)
-        }
-    }
 
     struct SignatureImpl;
 
@@ -183,7 +185,7 @@ mod tests {
         let protected: &dyn ProtectedDyn = &protected;
 
         let payload = PayloadImpl("hallo".to_string());
-        let payload: &dyn Base64AndSerializeDyn = &payload;
+        let payload: &dyn SerializeDyn = &payload;
 
         let signature = SignatureImpl;
         let signature: &dyn SignatureDyn = &signature;
