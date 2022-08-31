@@ -320,21 +320,14 @@ impl AcmeServer for dyn DynAcmeServer {
             signer_any,
         } = req.as_dyn_request();
 
-        let RequestImpl {
-            protected,
-            payload,
-            signer,
-            ..
-        } = inner;
-
-        let payload = payload.as_dyn_request();
+        let payload = inner.payload.as_dyn_request();
 
         let req = DynRequest {
             inner: RequestImpl {
                 phantom: PhantomData,
-                protected,
+                protected: inner.protected,
                 payload: &payload,
-                signer,
+                signer: inner.signer,
             },
             protected_any,
             signer_any,
