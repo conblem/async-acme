@@ -4,10 +4,11 @@ use std::error::Error;
 mod dto;
 mod dynamic;
 mod infallible;
-mod payloadtwo;
+mod request;
 
 pub use dto::*;
 pub use dynamic::*;
+pub use request::*;
 
 #[async_trait]
 pub trait AcmeServerBuilder: Send + Sync + 'static {
@@ -38,60 +39,60 @@ pub trait AcmeServer: Send + Sync {
 
     fn directory(&self) -> &ApiDirectory;
 
-    async fn new_account(
+    async fn new_account<'a>(
         &self,
-        req: SignedRequest<ApiAccount<()>>,
+        req: impl Request<ApiAccount<()>> + 'a,
     ) -> Result<(ApiAccount<()>, Uri), Self::Error>;
 
-    async fn get_account(
+    async fn get_account<'a>(
         &self,
         uri: &Uri,
-        req: SignedRequest<()>,
+        req: impl Request<()> + 'a,
     ) -> Result<ApiAccount<()>, Self::Error>;
 
-    async fn update_account(
+    async fn update_account<'a>(
         &self,
         uri: &Uri,
-        req: SignedRequest<ApiAccount<()>>,
+        req: impl Request<ApiAccount<()>> + 'a,
     ) -> Result<ApiAccount<()>, Self::Error>;
 
-    async fn change_key<K: Send>(
+    async fn change_key<'a, R: Request<ApiKeyChange<()>>>(
         &self,
-        req: SignedRequest<SignedRequest<ApiKeyChange<K>>>,
+        req: impl Request<R> + 'a,
     ) -> Result<(), Self::Error>;
 
-    async fn new_order(
+    async fn new_order<'a>(
         &self,
-        req: SignedRequest<ApiNewOrder>,
+        req: impl Request<ApiNewOrder> + 'a,
     ) -> Result<(ApiOrder<()>, Uri), Self::Error>;
 
-    async fn get_order(
+    async fn get_order<'a>(
         &self,
         uri: &Uri,
-        req: SignedRequest<()>,
+        req: impl Request<()> + 'a,
     ) -> Result<ApiOrder<()>, Self::Error>;
 
-    async fn get_authorization(
+    async fn get_authorization<'a>(
         &self,
         uri: &Uri,
-        req: SignedRequest<()>,
+        req: impl Request<()> + 'a,
     ) -> Result<ApiAuthorization, Self::Error>;
 
-    async fn validate_challenge(
+    async fn validate_challenge<'a>(
         &self,
         uri: &Uri,
-        req: SignedRequest<()>,
+        req: impl Request<()> + 'a,
     ) -> Result<ApiChallenge, Self::Error>;
 
-    async fn finalize(
+    async fn finalize<'a>(
         &self,
         uri: &Uri,
-        req: SignedRequest<ApiOrderFinalization>,
+        req: impl Request<ApiOrderFinalization> + 'a,
     ) -> Result<ApiOrder<()>, Self::Error>;
 
-    async fn download_certificate(
+    async fn download_certificate<'a>(
         &self,
         uri: &Uri,
-        req: SignedRequest<()>,
+        req: impl Request<()> + 'a,
     ) -> Result<Vec<u8>, Self::Error>;
 }
