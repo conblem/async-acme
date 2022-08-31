@@ -1,5 +1,6 @@
 use serde::{Serialize, Serializer};
 use std::any::Any;
+use std::borrow::Borrow;
 use std::ops::Deref;
 
 trait SerializeDyn: erased_serde::Serialize {
@@ -45,10 +46,38 @@ impl Clone for Box<dyn SerializeDyn> {
     }
 }
 
-struct SignedRequest<P, D, S: Signature<Protected = P, Payload = D>> {
+struct RequestImpl<P, D, S> {
     protected: P,
     payload: D,
     signature: S,
+}
+
+mod sealed {
+    use super::RequestImpl;
+
+    pub(super) trait Private {}
+    impl<P, D, S> Private for RequestImpl<P, D, S> {}
+}
+
+trait Request: sealed::Private {
+    fn as_signed_request(&self) -> String;
+}
+
+impl<P, D, S> Request for RequestImpl<P, D, S>
+where
+    S: Signature,
+    P: Borrow<S::Protected>,
+    D: Borrow<S::Payload>,
+{
+    fn as_signed_request(&self) -> String {
+        let RequestImpl {
+            signature,
+            protected,
+            payload,
+        } = self;
+
+        signature.sign(protected.borrow(), payload.borrow())
+    }
 }
 
 trait Protected: ToOwned {
@@ -133,18 +162,18 @@ where
     }
 }
 
-impl Signature for dyn SignatureDyn {
+impl<'a> Signature for dyn SignatureDyn {
     type Protected = dyn ProtectedDyn;
     type Payload = dyn SerializeDyn;
 
     fn sign(&self, protected: &Self::Protected, payload: &Self::Payload) -> String {
-        self.deref().sign_dyn(protected, payload)
+        self.deref().sign_dyn(&*protected, &*payload)
     }
 }
 
 impl<'a, T: Signature + ?Sized> Signature for &'a T {
-    type Protected = &'a T::Protected;
-    type Payload = &'a T::Payload;
+    type Protected = T::Protected;
+    type Payload = T::Payload;
 
     fn sign(&self, protected: &Self::Protected, payload: &Self::Payload) -> String {
         self.deref().sign(protected, payload)
@@ -190,13 +219,15 @@ mod tests {
         let signature = SignatureImpl;
         let signature: &dyn SignatureDyn = &signature;
 
-        let req = SignedRequest {
+        let req = RequestImpl {
             protected,
             payload,
             signature,
         };
+        run(req);
+    }
 
-        let res = req.signature.sign(req.protected, req.payload);
-        println!("{}", res);
+    fn run(req: impl Request) {
+        println!("{}", req.as_signed_request());
     }
 }
