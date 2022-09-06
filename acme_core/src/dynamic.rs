@@ -1,6 +1,7 @@
 use crate::{
     AcmeServer, ApiAccount, ApiAuthorization, ApiChallenge, ApiDirectory, ApiKeyChange,
-    ApiNewOrder, ApiOrder, ApiOrderFinalization, DynRequest, Request, RequestImpl, Uri,
+    ApiNewOrder, ApiOrder, ApiOrderFinalization, DynRequest, Jwk, PostAsGet, Request, RequestImpl,
+    Uri,
 };
 use async_trait::async_trait;
 use std::any::Any;
@@ -57,79 +58,79 @@ pub trait DynAcmeServer: Send + Sync + 'static {
     fn directory_dyn(&self, sealed: &dyn Private) -> &ApiDirectory;
 
     #[doc(hidden)]
-    async fn new_account_dyn<'a>(
+    async fn new_account_dyn(
         &self,
-        req: DynRequest<'a, ApiAccount<()>>,
+        req: DynRequest<'_, ApiAccount<()>, Jwk<()>>,
         _: &dyn Private,
     ) -> Result<(ApiAccount<()>, Uri), DynError>;
 
     #[doc(hidden)]
-    async fn get_account_dyn<'a>(
+    async fn get_account_dyn(
         &self,
         uri: &Uri,
-        req: DynRequest<'a, ()>,
+        req: DynRequest<'_, PostAsGet>,
         _: &dyn Private,
     ) -> Result<ApiAccount<()>, DynError>;
 
     #[doc(hidden)]
-    async fn update_account_dyn<'a>(
+    async fn update_account_dyn(
         &self,
         uri: &Uri,
-        req: DynRequest<'a, ApiAccount<()>>,
+        req: DynRequest<'_, ApiAccount<()>>,
         _: &dyn Private,
     ) -> Result<ApiAccount<()>, DynError>;
 
     // use erased serde serialize type here
-    async fn change_key_dyn<'a>(
+    async fn change_key_dyn(
         &self,
-        req: DynRequest<'a, DynRequest<ApiKeyChange<()>>>,
+        req: DynRequest<'_, DynRequest<ApiKeyChange<()>>>,
         _: &dyn Private,
     ) -> Result<(), DynError>;
 
     #[doc(hidden)]
-    async fn new_order_dyn<'a>(
+    async fn new_order_dyn(
         &self,
-        req: DynRequest<'a, ApiNewOrder>,
+        req: DynRequest<'_, ApiNewOrder>,
         _: &dyn Private,
     ) -> Result<(ApiOrder<()>, Uri), DynError>;
 
     #[doc(hidden)]
-    async fn get_order_dyn<'a>(
+    async fn get_order_dyn(
         &self,
         uri: &Uri,
-        req: DynRequest<'a, ()>,
+        req: DynRequest<'_, PostAsGet>,
         _: &dyn Private,
     ) -> Result<ApiOrder<()>, DynError>;
 
     #[doc(hidden)]
-    async fn get_authorization_dyn<'a>(
+    async fn get_authorization_dyn(
         &self,
         uri: &Uri,
-        req: DynRequest<'a, ()>,
+        req: DynRequest<'_, PostAsGet>,
         _: &dyn Private,
     ) -> Result<ApiAuthorization, DynError>;
 
     #[doc(hidden)]
-    async fn validate_challenge_dyn<'a>(
+    async fn validate_challenge_dyn(
         &self,
         uri: &Uri,
-        req: DynRequest<'a, ()>,
+        req: DynRequest<'_, PostAsGet>,
         _: &dyn Private,
     ) -> Result<ApiChallenge, DynError>;
 
     #[doc(hidden)]
-    async fn finalize_dyn<'a>(
+    async fn finalize_dyn(
         &self,
         uri: &Uri,
-        req: DynRequest<'a, ApiOrderFinalization>,
+        req: DynRequest<'_, ApiOrderFinalization>,
         _: &dyn Private,
     ) -> Result<ApiOrder<()>, DynError>;
 
     #[doc(hidden)]
-    async fn download_certificate_dyn<'a>(
+    async fn download_certificate_dyn(
         &self,
         uri: &Uri,
-        req: DynRequest<'a, ()>,
+        req: DynRequest<'_, PostAsGet>,
         _: &dyn Private,
     ) -> Result<Vec<u8>, DynError>;
 
@@ -158,89 +159,89 @@ impl<T: AcmeServer + Clone + Debug + Send + Sync + 'static> DynAcmeServer for T 
         self.directory()
     }
 
-    async fn new_account_dyn<'a>(
+    async fn new_account_dyn(
         &self,
-        req: DynRequest<'a, ApiAccount<()>>,
+        req: DynRequest<'_, ApiAccount<()>, Jwk<()>>,
         _: &dyn Private,
     ) -> Result<(ApiAccount<()>, Uri), DynError> {
         Ok(self.new_account(req).await?)
     }
 
-    async fn get_account_dyn<'a>(
+    async fn get_account_dyn(
         &self,
         uri: &Uri,
-        req: DynRequest<'a, ()>,
+        req: DynRequest<'_, PostAsGet>,
         _: &dyn Private,
     ) -> Result<ApiAccount<()>, DynError> {
         Ok(self.get_account(uri, req).await?)
     }
 
-    async fn update_account_dyn<'a>(
+    async fn update_account_dyn(
         &self,
         uri: &Uri,
-        req: DynRequest<'a, ApiAccount<()>>,
+        req: DynRequest<'_, ApiAccount<()>>,
         _: &dyn Private,
     ) -> Result<ApiAccount<()>, DynError> {
         Ok(self.update_account(uri, req).await?)
     }
 
     // todo: figure this out
-    async fn change_key_dyn<'a>(
+    async fn change_key_dyn(
         &self,
-        req: DynRequest<'a, DynRequest<ApiKeyChange<()>>>,
+        req: DynRequest<'_, DynRequest<ApiKeyChange<()>>>,
         _: &dyn Private,
     ) -> Result<(), DynError> {
         Ok(self.change_key(req).await?)
     }
 
-    async fn new_order_dyn<'a>(
+    async fn new_order_dyn(
         &self,
-        req: DynRequest<'a, ApiNewOrder>,
+        req: DynRequest<'_, ApiNewOrder>,
         _: &dyn Private,
     ) -> Result<(ApiOrder<()>, Uri), DynError> {
         Ok(self.new_order(req).await?)
     }
 
-    async fn get_order_dyn<'a>(
+    async fn get_order_dyn(
         &self,
         uri: &Uri,
-        req: DynRequest<'a, ()>,
+        req: DynRequest<'_, PostAsGet>,
         _: &dyn Private,
     ) -> Result<ApiOrder<()>, DynError> {
         Ok(self.get_order(uri, req).await?)
     }
 
-    async fn get_authorization_dyn<'a>(
+    async fn get_authorization_dyn(
         &self,
         uri: &Uri,
-        req: DynRequest<'a, ()>,
+        req: DynRequest<'_, PostAsGet>,
         _: &dyn Private,
     ) -> Result<ApiAuthorization, DynError> {
         Ok(self.get_authorization(uri, req).await?)
     }
 
-    async fn validate_challenge_dyn<'a>(
+    async fn validate_challenge_dyn(
         &self,
         uri: &Uri,
-        req: DynRequest<'a, ()>,
+        req: DynRequest<'_, PostAsGet>,
         _: &dyn Private,
     ) -> Result<ApiChallenge, DynError> {
         Ok(self.validate_challenge(uri, req).await?)
     }
 
-    async fn finalize_dyn<'a>(
+    async fn finalize_dyn(
         &self,
         uri: &Uri,
-        req: DynRequest<'a, ApiOrderFinalization>,
+        req: DynRequest<'_, ApiOrderFinalization>,
         _: &dyn Private,
     ) -> Result<ApiOrder<()>, DynError> {
         Ok(self.finalize(uri, req).await?)
     }
 
-    async fn download_certificate_dyn<'a>(
+    async fn download_certificate_dyn(
         &self,
         uri: &Uri,
-        req: DynRequest<'a, ()>,
+        req: DynRequest<'_, PostAsGet>,
         _: &dyn Private,
     ) -> Result<Vec<u8>, DynError> {
         Ok(self.download_certificate(uri, req).await?)
@@ -280,39 +281,38 @@ impl AcmeServer for dyn DynAcmeServer {
         self.directory_dyn(&PrivateImpl)
     }
 
-    async fn new_account<'a>(
+    async fn new_account(
         &self,
-        req: impl Request<ApiAccount<()>> + 'a,
+        req: impl Request<ApiAccount<()>, Jwk<()>>,
     ) -> Result<(ApiAccount<()>, Uri), Self::Error> {
         Ok(self
             .new_account_dyn(req.as_dyn_request(), &PrivateImpl)
             .await?)
     }
 
-    async fn get_account<'a>(
+    async fn get_account(
         &self,
         uri: &Uri,
-        req: impl Request<()> + 'a,
+        req: impl Request<PostAsGet>,
     ) -> Result<ApiAccount<()>, Self::Error> {
         Ok(self
             .get_account_dyn(uri, req.as_dyn_request(), &PrivateImpl)
             .await?)
     }
 
-    async fn update_account<'a>(
+    async fn update_account(
         &self,
         uri: &Uri,
-        req: impl Request<ApiAccount<()>> + 'a,
+        req: impl Request<ApiAccount<()>>,
     ) -> Result<ApiAccount<()>, Self::Error> {
         Ok(self
             .update_account_dyn(uri, req.as_dyn_request(), &PrivateImpl)
             .await?)
     }
 
-    // todo: figure this cast out
-    async fn change_key<'a, R: Request<ApiKeyChange<()>>>(
+    async fn change_key<R: Request<ApiKeyChange<()>>>(
         &self,
-        req: impl Request<R> + 'a,
+        req: impl Request<R>,
     ) -> Result<(), Self::Error> {
         let DynRequest {
             inner,
@@ -336,59 +336,59 @@ impl AcmeServer for dyn DynAcmeServer {
         Ok(self.change_key_dyn(req, &PrivateImpl).await?)
     }
 
-    async fn new_order<'a>(
+    async fn new_order(
         &self,
-        req: impl Request<ApiNewOrder> + 'a,
+        req: impl Request<ApiNewOrder>,
     ) -> Result<(ApiOrder<()>, Uri), Self::Error> {
         Ok(self
             .new_order_dyn(req.as_dyn_request(), &PrivateImpl)
             .await?)
     }
 
-    async fn get_order<'a>(
+    async fn get_order(
         &self,
         uri: &Uri,
-        req: impl Request<()> + 'a,
+        req: impl Request<PostAsGet>,
     ) -> Result<ApiOrder<()>, Self::Error> {
         Ok(self
             .get_order_dyn(uri, req.as_dyn_request(), &PrivateImpl)
             .await?)
     }
 
-    async fn get_authorization<'a>(
+    async fn get_authorization(
         &self,
         uri: &Uri,
-        req: impl Request<()> + 'a,
+        req: impl Request<PostAsGet>,
     ) -> Result<ApiAuthorization, Self::Error> {
         Ok(self
             .get_authorization_dyn(uri, req.as_dyn_request(), &PrivateImpl)
             .await?)
     }
 
-    async fn validate_challenge<'a>(
+    async fn validate_challenge(
         &self,
         uri: &Uri,
-        req: impl Request<()> + 'a,
+        req: impl Request<PostAsGet>,
     ) -> Result<ApiChallenge, Self::Error> {
         Ok(self
             .validate_challenge_dyn(uri, req.as_dyn_request(), &PrivateImpl)
             .await?)
     }
 
-    async fn finalize<'a>(
+    async fn finalize(
         &self,
         uri: &Uri,
-        req: impl Request<ApiOrderFinalization> + 'a,
+        req: impl Request<ApiOrderFinalization>,
     ) -> Result<ApiOrder<()>, Self::Error> {
         Ok(self
             .finalize_dyn(uri, req.as_dyn_request(), &PrivateImpl)
             .await?)
     }
 
-    async fn download_certificate<'a>(
+    async fn download_certificate(
         &self,
         uri: &Uri,
-        req: impl Request<()> + 'a,
+        req: impl Request<PostAsGet>,
     ) -> Result<Vec<u8>, Self::Error> {
         Ok(self
             .download_certificate_dyn(uri, req.as_dyn_request(), &PrivateImpl)
@@ -435,79 +435,79 @@ mod tests {
             todo!()
         }
 
-        async fn new_account<'a>(
+        async fn new_account(
             &self,
-            _req: impl Request<ApiAccount<()>> + 'a,
+            _req: impl Request<ApiAccount<()>, Jwk<()>>,
         ) -> Result<(ApiAccount<()>, Uri), Self::Error> {
             todo!()
         }
 
-        async fn get_account<'a>(
+        async fn get_account(
             &self,
             _uri: &Uri,
-            _req: impl Request<()> + 'a,
+            _req: impl Request<PostAsGet>,
         ) -> Result<ApiAccount<()>, Self::Error> {
             todo!()
         }
 
-        async fn update_account<'a>(
+        async fn update_account(
             &self,
             _uri: &Uri,
-            _req: impl Request<ApiAccount<()>> + 'a,
+            _req: impl Request<ApiAccount<()>>,
         ) -> Result<ApiAccount<()>, Self::Error> {
             todo!()
         }
 
-        async fn change_key<'a, R: Request<ApiKeyChange<()>>>(
+        async fn change_key<R: Request<ApiKeyChange<()>>>(
             &self,
-            _req: impl Request<R> + 'a,
+            _req: impl Request<R>,
         ) -> Result<(), Self::Error> {
             todo!()
         }
 
-        async fn new_order<'a>(
+        async fn new_order(
             &self,
-            _req: impl Request<ApiNewOrder> + 'a,
+            _req: impl Request<ApiNewOrder>,
         ) -> Result<(ApiOrder<()>, Uri), Self::Error> {
             todo!()
         }
 
-        async fn get_order<'a>(
+        async fn get_order(
             &self,
             _uri: &Uri,
-            _req: impl Request<()> + 'a,
+            _req: impl Request<PostAsGet>,
         ) -> Result<ApiOrder<()>, Self::Error> {
             todo!()
         }
 
-        async fn get_authorization<'a>(
+        async fn get_authorization(
             &self,
             _uri: &Uri,
-            _req: impl Request<()> + 'a,
+            _req: impl Request<PostAsGet>,
         ) -> Result<ApiAuthorization, Self::Error> {
             todo!()
         }
 
-        async fn validate_challenge<'a>(
+        async fn validate_challenge(
             &self,
             _uri: &Uri,
-            _req: impl Request<()> + 'a,
+            _req: impl Request<PostAsGet>,
         ) -> Result<ApiChallenge, Self::Error> {
             todo!()
         }
 
-        async fn finalize<'a>(
+        async fn finalize(
             &self,
             _uri: &Uri,
-            _req: impl Request<ApiOrderFinalization> + 'a,
+            _req: impl Request<ApiOrderFinalization>,
         ) -> Result<ApiOrder<()>, Self::Error> {
             todo!()
         }
 
-        async fn download_certificate<'a>(
+        async fn download_certificate(
             &self,
             _uri: &Uri,
-            _req: impl Request<()> + 'a,
+            _req: impl Request<PostAsGet>,
         ) -> Result<Vec<u8>, Self::Error> {
             todo!()
         }

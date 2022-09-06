@@ -39,60 +39,60 @@ pub trait AcmeServer: Send + Sync {
 
     fn directory(&self) -> &ApiDirectory;
 
-    async fn new_account<'a>(
+    async fn new_account(
         &self,
-        req: impl Request<ApiAccount<()>> + 'a,
+        req: impl Request<ApiAccount<()>, Jwk<()>>,
     ) -> Result<(ApiAccount<()>, Uri), Self::Error>;
 
-    async fn get_account<'a>(
+    async fn get_account(
         &self,
         uri: &Uri,
-        req: impl Request<()> + 'a,
+        req: impl Request<PostAsGet>,
     ) -> Result<ApiAccount<()>, Self::Error>;
 
-    async fn update_account<'a>(
+    async fn update_account(
         &self,
         uri: &Uri,
-        req: impl Request<ApiAccount<()>> + 'a,
+        req: impl Request<ApiAccount<()>>,
     ) -> Result<ApiAccount<()>, Self::Error>;
 
-    async fn change_key<'a, R: Request<ApiKeyChange<()>>>(
+    async fn change_key<R: Request<ApiKeyChange<()>>>(
         &self,
-        req: impl Request<R> + 'a,
+        req: impl Request<R>,
     ) -> Result<(), Self::Error>;
 
-    async fn new_order<'a>(
+    async fn new_order(
         &self,
-        req: impl Request<ApiNewOrder> + 'a,
+        req: impl Request<ApiNewOrder>,
     ) -> Result<(ApiOrder<()>, Uri), Self::Error>;
 
-    async fn get_order<'a>(
+    async fn get_order(
         &self,
         uri: &Uri,
-        req: impl Request<()> + 'a,
+        req: impl Request<PostAsGet>,
     ) -> Result<ApiOrder<()>, Self::Error>;
 
-    async fn get_authorization<'a>(
+    async fn get_authorization(
         &self,
         uri: &Uri,
-        req: impl Request<()> + 'a,
+        req: impl Request<PostAsGet>,
     ) -> Result<ApiAuthorization, Self::Error>;
 
-    async fn validate_challenge<'a>(
+    async fn validate_challenge(
         &self,
         uri: &Uri,
-        req: impl Request<()> + 'a,
+        req: impl Request<PostAsGet>,
     ) -> Result<ApiChallenge, Self::Error>;
 
-    async fn finalize<'a>(
+    async fn finalize(
         &self,
         uri: &Uri,
-        req: impl Request<ApiOrderFinalization> + 'a,
+        req: impl Request<ApiOrderFinalization>,
     ) -> Result<ApiOrder<()>, Self::Error>;
 
-    async fn download_certificate<'a>(
+    async fn download_certificate(
         &self,
         uri: &Uri,
-        req: impl Request<()> + 'a,
+        req: impl Request<PostAsGet>,
     ) -> Result<Vec<u8>, Self::Error>;
 }

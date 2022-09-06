@@ -15,8 +15,8 @@ mod sealed {
 
     pub trait Sealed {}
 
-    impl<'a, B, N: NonceType, K: KeyType> Sealed for DynRequest<'a, B, N, K> {}
-    impl<'a, N, K, P, D, S: ?Sized> Sealed for RequestImpl<'a, N, K, P, D, S> {}
+    impl<'a, B, K: KeyType, N: NonceType> Sealed for DynRequest<'a, B, K, N> {}
+    impl<'a, K, N, P, D, S: ?Sized> Sealed for RequestImpl<'a, K, N, P, D, S> {}
 
     impl Sealed for PrivateImpl {}
 
@@ -32,16 +32,16 @@ struct PrivateImpl;
 impl Private for PrivateImpl {}
 
 // todo: change location of nonce
-pub trait Request<B, N: NonceType = NoNonce, K: KeyType = Kid>:
+pub trait Request<B, K: KeyType = Kid, N: NonceType = NoNonce>:
     serde::Serialize + sealed::Sealed + Send + Sync
 {
     // todo: make private
-    fn as_dyn_request(&self) -> DynRequest<'_, B, N, K>;
+    fn as_dyn_request(&self) -> DynRequest<'_, B, K, N>;
 }
 
 // maybe does not need to be public
-pub struct RequestImpl<'a, N, K, P, B, S: ?Sized> {
-    pub(crate) phantom: PhantomData<(N, K)>,
+pub struct RequestImpl<'a, K, N, P, B, S: ?Sized> {
+    pub(crate) phantom: PhantomData<(K, N)>,
     pub(crate) protected: P,
     pub(crate) payload: &'a B,
     pub(crate) signer: &'a S,
@@ -49,14 +49,14 @@ pub struct RequestImpl<'a, N, K, P, B, S: ?Sized> {
 
 impl<
         'a,
-        N: NonceType,
         K: KeyType,
-        P: Protected<N, K> + 'static,
+        N: NonceType,
+        P: Protected<K, N> + 'static,
         B: Serialize,
         S: Signer + 'static,
-    > Request<B, N, K> for RequestImpl<'a, N, K, P, B, S>
+    > Request<B, K, N> for RequestImpl<'a, K, N, P, B, S>
 {
-    fn as_dyn_request(&self) -> DynRequest<'_, B, N, K> {
+    fn as_dyn_request(&self) -> DynRequest<'_, B, K, N> {
         let RequestImpl {
             protected,
             payload,
@@ -84,8 +84,8 @@ impl<
     }
 }
 
-impl<'a, N: NonceType, K: KeyType, P: Protected<N, K>, B: Serialize, S: Signer + ?Sized>
-    serde::Serialize for RequestImpl<'a, N, K, P, B, S>
+impl<'a, K: KeyType, N: NonceType, P: Protected<K, N>, B: Serialize, S: Signer + ?Sized>
+    serde::Serialize for RequestImpl<'a, K, N, P, B, S>
 {
     fn serialize<Ser>(&self, serializer: Ser) -> Result<Ser::Ok, Ser::Error>
     where
@@ -113,14 +113,14 @@ fn base64_and_serialize<T: Serialize + ?Sized>(input: &T) -> String {
     base64::encode_config(json, URL_SAFE_NO_PAD)
 }
 
-pub struct DynRequest<'a, B, N: NonceType = NoNonce, K: KeyType = Kid> {
+pub struct DynRequest<'a, B, K: KeyType = Kid, N: NonceType = NoNonce> {
     pub(crate) inner:
-        RequestImpl<'a, N, K, ProtectedCow<'a, DynProtected<'a, N, K>>, B, dyn Signer>,
+        RequestImpl<'a, K, N, ProtectedCow<'a, DynProtected<'a, K, N>>, B, dyn Signer>,
     pub(crate) protected_any: &'a (dyn Any + Send + Sync),
     pub(crate) signer_any: &'a (dyn Any + Send + Sync),
 }
 
-impl<B, N: NonceType, K: KeyType> DynRequest<'_, B, N, K> {
+impl<B, K: KeyType, N: NonceType> DynRequest<'_, B, K, N> {
     pub fn protected_as_any(&self) -> &dyn Any {
         self.protected_any
     }
@@ -130,8 +130,8 @@ impl<B, N: NonceType, K: KeyType> DynRequest<'_, B, N, K> {
     }
 }
 
-impl<'a, B: Serialize, N: NonceType, K: KeyType> Request<B, N, K> for DynRequest<'a, B, N, K> {
-    fn as_dyn_request(&self) -> DynRequest<'_, B, N, K> {
+impl<'a, B: Serialize, K: KeyType, N: NonceType> Request<B, K, N> for DynRequest<'a, B, K, N> {
+    fn as_dyn_request(&self) -> DynRequest<'_, B, K, N> {
         let DynRequest {
             inner,
             protected_any,
@@ -163,7 +163,7 @@ impl<'a, B: Serialize, N: NonceType, K: KeyType> Request<B, N, K> for DynRequest
     }
 }
 
-impl<'a, B: Serialize, N: NonceType, K: KeyType> serde::Serialize for DynRequest<'a, B, N, K> {
+impl<'a, B: Serialize, K: KeyType, N: NonceType> serde::Serialize for DynRequest<'a, B, K, N> {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
         S: Serializer,
@@ -210,21 +210,21 @@ impl NonceType for NoNonce {
     type Nonce = String;
 }
 
-pub trait Protected<N: NonceType, K: KeyType>: Send + Sync {
+pub trait Protected<K: KeyType, N: NonceType>: Send + Sync {
     fn alg(&self) -> &str;
     fn key(&self) -> &K::Key;
     fn nonce(&self) -> &N::Nonce;
     fn url(&self) -> &Uri;
 }
 
-pub(crate) struct DynProtected<'a, N: NonceType, K: KeyType> {
+pub(crate) struct DynProtected<'a, K: KeyType, N: NonceType> {
     nonce: &'a N::Nonce,
     key: &'a K::Key,
     alg: &'a str,
     url: &'a Uri,
 }
 
-impl<N: NonceType, K: KeyType> Protected<N, K> for DynProtected<'_, N, K> {
+impl<K: KeyType, N: NonceType> Protected<K, N> for DynProtected<'_, K, N> {
     fn alg(&self) -> &str {
         self.alg
     }
@@ -247,7 +247,7 @@ pub(crate) enum ProtectedCow<'a, T> {
     Owned(T),
 }
 
-impl<N: NonceType, K: KeyType, T: Protected<N, K>> Protected<N, K> for ProtectedCow<'_, T> {
+impl<K: KeyType, N: NonceType, T: Protected<K, N>> Protected<K, N> for ProtectedCow<'_, T> {
     fn alg(&self) -> &str {
         match self {
             ProtectedCow::Borrowed(this) => this.alg(),
@@ -277,10 +277,10 @@ impl<N: NonceType, K: KeyType, T: Protected<N, K>> Protected<N, K> for Protected
     }
 }
 
-struct ProtectedWrapper<'a, N, K, P>(&'a P, PhantomData<(N, K)>);
+struct ProtectedWrapper<'a, K, N, P>(&'a P, PhantomData<(K, N)>);
 
-impl<'a, N: NonceType, K: KeyType, P: Protected<N, K>> serde::Serialize
-    for ProtectedWrapper<'a, N, K, P>
+impl<'a, K: KeyType, N: NonceType, P: Protected<K, N>> serde::Serialize
+    for ProtectedWrapper<'a, K, N, P>
 {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
@@ -311,6 +311,17 @@ impl<'a, N: NonceType, K: KeyType, P: Protected<N, K>> serde::Serialize
         protected.serialize_field("url", self.0.url())?;
 
         protected.end()
+    }
+}
+
+pub struct PostAsGet;
+
+impl serde::Serialize for PostAsGet {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        "".serialize(serializer)
     }
 }
 

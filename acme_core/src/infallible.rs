@@ -1,6 +1,6 @@
 use crate::{
     AcmeServer, AcmeServerBuilder, ApiAccount, ApiAuthorization, ApiChallenge, ApiDirectory,
-    ApiKeyChange, ApiNewOrder, ApiOrder, ApiOrderFinalization, Request, Uri,
+    ApiKeyChange, ApiNewOrder, ApiOrder, ApiOrderFinalization, Jwk, PostAsGet, Request, Uri,
 };
 use async_trait::async_trait;
 use std::convert::Infallible;
@@ -27,79 +27,79 @@ impl AcmeServer for Infallible {
         match *self {}
     }
 
-    async fn new_account<'a>(
+    async fn new_account(
         &self,
-        _req: impl Request<ApiAccount<()>> + 'a,
+        _req: impl Request<ApiAccount<()>, Jwk<()>>,
     ) -> Result<(ApiAccount<()>, Uri), Self::Error> {
         match *self {}
     }
 
-    async fn get_account<'a>(
+    async fn get_account(
         &self,
         _uri: &Uri,
-        _req: impl Request<()> + 'a,
+        _req: impl Request<PostAsGet>,
     ) -> Result<ApiAccount<()>, Self::Error> {
         match *self {}
     }
 
-    async fn update_account<'a>(
+    async fn update_account(
         &self,
         _uri: &Uri,
-        _req: impl Request<ApiAccount<()>> + 'a,
+        _req: impl Request<ApiAccount<()>>,
     ) -> Result<ApiAccount<()>, Self::Error> {
         match *self {}
     }
 
-    async fn change_key<'a, R: Request<ApiKeyChange<()>>>(
+    async fn change_key<R: Request<ApiKeyChange<()>>>(
         &self,
-        _req: impl Request<R> + 'a,
+        _req: impl Request<R>,
     ) -> Result<(), Self::Error> {
         match *self {}
     }
 
-    async fn new_order<'a>(
+    async fn new_order(
         &self,
-        _req: impl Request<ApiNewOrder> + 'a,
+        _req: impl Request<ApiNewOrder>,
     ) -> Result<(ApiOrder<()>, Uri), Self::Error> {
         match *self {}
     }
 
-    async fn get_order<'a>(
+    async fn get_order(
         &self,
         _uri: &Uri,
-        _req: impl Request<()> + 'a,
+        _req: impl Request<PostAsGet>,
     ) -> Result<ApiOrder<()>, Self::Error> {
         match *self {}
     }
 
-    async fn get_authorization<'a>(
+    async fn get_authorization(
         &self,
         _uri: &Uri,
-        _req: impl Request<()> + 'a,
+        _req: impl Request<PostAsGet>,
     ) -> Result<ApiAuthorization, Self::Error> {
         match *self {}
     }
 
-    async fn validate_challenge<'a>(
+    async fn validate_challenge(
         &self,
         _uri: &Uri,
-        _req: impl Request<()> + 'a,
+        _req: impl Request<PostAsGet>,
     ) -> Result<ApiChallenge, Self::Error> {
         match *self {}
     }
 
-    async fn finalize<'a>(
+    async fn finalize(
         &self,
         _uri: &Uri,
-        _req: impl Request<ApiOrderFinalization> + 'a,
+        _req: impl Request<ApiOrderFinalization>,
     ) -> Result<ApiOrder<()>, Self::Error> {
         match *self {}
     }
 
-    async fn download_certificate<'a>(
+    async fn download_certificate(
         &self,
         _uri: &Uri,
-        _req: impl Request<()> + 'a,
+        _req: impl Request<PostAsGet>,
     ) -> Result<Vec<u8>, Self::Error> {
         match *self {}
     }
