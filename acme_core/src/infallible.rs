@@ -29,8 +29,8 @@ impl AcmeServer for Infallible {
 
     async fn new_account(
         &self,
-        _req: impl Request<ApiAccount<()>, Jwk<()>>,
-    ) -> Result<(ApiAccount<()>, Uri), Self::Error> {
+        _req: impl Request<ApiAccount, Jwk<()>>,
+    ) -> Result<(ApiAccount, Uri), Self::Error> {
         match *self {}
     }
 
@@ -38,15 +38,15 @@ impl AcmeServer for Infallible {
         &self,
         _uri: &Uri,
         _req: impl Request<PostAsGet>,
-    ) -> Result<ApiAccount<()>, Self::Error> {
+    ) -> Result<ApiAccount, Self::Error> {
         match *self {}
     }
 
     async fn update_account(
         &self,
         _uri: &Uri,
-        _req: impl Request<ApiAccount<()>>,
-    ) -> Result<ApiAccount<()>, Self::Error> {
+        _req: impl Request<ApiAccount>,
+    ) -> Result<ApiAccount, Self::Error> {
         match *self {}
     }
 
@@ -60,7 +60,7 @@ impl AcmeServer for Infallible {
     async fn new_order(
         &self,
         _req: impl Request<ApiNewOrder>,
-    ) -> Result<(ApiOrder<()>, Uri), Self::Error> {
+    ) -> Result<(ApiOrder, Uri), Self::Error> {
         match *self {}
     }
 
@@ -68,7 +68,7 @@ impl AcmeServer for Infallible {
         &self,
         _uri: &Uri,
         _req: impl Request<PostAsGet>,
-    ) -> Result<ApiOrder<()>, Self::Error> {
+    ) -> Result<ApiOrder, Self::Error> {
         match *self {}
     }
 
@@ -92,7 +92,7 @@ impl AcmeServer for Infallible {
         &self,
         _uri: &Uri,
         _req: impl Request<ApiOrderFinalization>,
-    ) -> Result<ApiOrder<()>, Self::Error> {
+    ) -> Result<ApiOrder, Self::Error> {
         match *self {}
     }
 

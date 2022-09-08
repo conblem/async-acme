@@ -1,7 +1,8 @@
 use crate::Uri;
 use base64::URL_SAFE_NO_PAD;
+use serde::de::Error as DeError;
 use serde::ser::SerializeStruct;
-use serde::Serializer;
+use serde::{Deserialize, Deserializer, Serializer};
 use std::any::Any;
 use std::marker::PhantomData;
 use std::ops::Deref;
@@ -45,6 +46,25 @@ pub struct RequestImpl<'a, K, N, P, B, S: ?Sized> {
     pub(crate) protected: P,
     pub(crate) payload: &'a B,
     pub(crate) signer: &'a S,
+}
+
+impl<
+        'a,
+        K: KeyType,
+        N: NonceType,
+        P: Protected<K, N> + 'static,
+        B: serde::Serialize + Send + Sync,
+        S: Signer + 'static,
+    > RequestImpl<'a, K, N, P, B, S>
+{
+    pub fn new(protected: P, payload: &'a B, signer: &'a S) -> Self {
+        Self {
+            phantom: PhantomData,
+            protected,
+            payload,
+            signer,
+        }
+    }
 }
 
 impl<
@@ -97,7 +117,6 @@ impl<'a, K: KeyType, N: NonceType, P: Protected<K, N>, B: Serialize, S: Signer +
         let protected = base64_and_serialize(&protected);
         request_impl.serialize_field("protected", &protected)?;
 
-        // todo: handle case for get requests where body is nothing
         let payload = base64_and_serialize(self.payload);
         request_impl.serialize_field("payload", &payload)?;
 
@@ -109,6 +128,7 @@ impl<'a, K: KeyType, N: NonceType, P: Protected<K, N>, B: Serialize, S: Signer +
 }
 
 fn base64_and_serialize<T: Serialize + ?Sized>(input: &T) -> String {
+    // todo: remove unwrap
     let json = serde_json::to_vec(input).unwrap();
     base64::encode_config(json, URL_SAFE_NO_PAD)
 }
@@ -286,24 +306,27 @@ impl<'a, K: KeyType, N: NonceType, P: Protected<K, N>> serde::Serialize
     where
         S: Serializer,
     {
-        let nonce = match <dyn Any>::downcast_ref::<PhantomData<(NoNonce, K)>>(&self.1) {
+        let nonce = match <dyn Any>::downcast_ref::<N>(&NoNonce(&PrivateImpl)) {
+            // N is NoNonce
             Some(_) => None,
             None => Some(self.0.nonce()),
         };
 
-        // todo: currenyl makes no sense this code
         let mut protected = match nonce {
+            // if we have a nonce an additional field will be present
             Some(_) => serializer.serialize_struct("Request", 4)?,
             None => serializer.serialize_struct("Request", 3)?,
         };
 
         protected.serialize_field("alg", self.0.alg())?;
 
-        match <dyn Any>::downcast_ref::<PhantomData<(N, Kid)>>(&self.1) {
+        match <dyn Any>::downcast_ref::<K>(&Kid(&PrivateImpl)) {
+            // K is Kid
             Some(_) => protected.serialize_field("kid", self.0.key())?,
             None => protected.serialize_field("jwk", self.0.key())?,
         };
 
+        // serialize the additional nonce field
         if let Some(nonce) = nonce {
             protected.serialize_field("nonce", nonce)?;
         }
@@ -325,56 +348,29 @@ impl serde::Serialize for PostAsGet {
     }
 }
 
-/*#[cfg(test)]
-mod tests {
-    use super::*;
-    use serde::Serialize;
+pub enum NoExternalAccountBinding {}
 
-    #[derive(Clone)]
-    struct ProtectedImpl;
-
-    impl Protected for ProtectedImpl {
-        fn alg(&self) -> &str {
-            "ES256"
-        }
-    }
-
-    #[derive(Serialize, Clone)]
-    struct PayloadImpl(String);
-
-    struct SignatureImpl;
-
-    impl Signature for SignatureImpl {
-        type Protected = ProtectedImpl;
-        type Payload = PayloadImpl;
-
-        fn sign(&self, protected: &Self::Protected, payload: &Self::Payload) -> String {
-            format!("{}.{}", protected.alg(), payload.0)
-        }
-    }
-
-    #[test]
-    fn test() {
-        let protected = ProtectedImpl;
-        let protected: &dyn DynProtected = &protected;
-
-        let payload = PayloadImpl("hallo".to_string());
-
-        let signature = SignatureImpl;
-        let signature: &dyn DynSignature = &signature;
-
-        let req = DynRequest {
-            protected,
-            payload: &payload,
-            signature,
-        };
-        run(req)
-    }
-
-    fn run(req: impl Request<PayloadImpl>) {
-        println!("{}", req.as_signed_request(&PrivateImpl));
-        let dyn_req = req.as_dyn_request();
-        println!("{}", dyn_req.as_signed_request(&PrivateImpl));
+impl serde::Serialize for NoExternalAccountBinding {
+    fn serialize<S>(&self, _: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        match *self {}
     }
 }
-*/
+
+impl<'de> Deserialize<'de> for NoExternalAccountBinding {
+    fn deserialize<D>(_: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        Err(DeError::custom("NoExternalAccountBinding cannot be deserialized and should always be used in conjunction with Option"))
+    }
+}
+
+trait JwkKey: Send + Sync {
+    fn crg(&self) -> &str;
+    fn kty(&self) -> &str;
+    fn x(&self) -> &str;
+    fn y(&self) -> &str;
+}

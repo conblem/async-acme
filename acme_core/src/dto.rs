@@ -1,3 +1,4 @@
+use crate::NoExternalAccountBinding;
 use http::uri::InvalidUri;
 use serde::de::{self, Error as DeError, Visitor};
 use serde::ser::SerializeStruct;
@@ -192,22 +193,9 @@ pub enum ApiAccountStatus {
     Revoked,
 }
 
-// todo: improve
-pub struct Contact(String);
-
-impl<'de> Deserialize<'de> for Contact {
-    fn deserialize<D>(deserializer: D) -> Result<Contact, D::Error>
-    where
-        D: Deserializer<'de>,
-    {
-        let res = String::deserialize(deserializer)?;
-        Ok(Contact(res))
-    }
-}
-
 #[derive(Clone, Serialize, Deserialize, Debug, Default)]
 #[serde(rename_all = "camelCase")]
-pub struct ApiAccount<E> {
+pub struct ApiAccount<E = NoExternalAccountBinding> {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub status: Option<ApiAccountStatus>,
     pub contact: Vec<String>,
@@ -271,7 +259,7 @@ pub struct ApiOrderFinalization {
 
 #[derive(Clone, Serialize, Deserialize, Debug)]
 #[serde(rename_all = "camelCase")]
-pub struct ApiOrder<E> {
+pub struct ApiOrder {
     pub status: ApiOrderStatus,
     #[serde(skip_serializing_if = "Option::is_none", with = "rfc3339_option")]
     pub expires: Option<OffsetDateTime>,
@@ -280,7 +268,8 @@ pub struct ApiOrder<E> {
     pub not_before: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub not_after: Option<String>,
-    pub error: Option<E>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub error: Option<ApiError>,
     pub authorizations: Vec<Uri>,
     pub finalize: Uri,
     #[serde(skip_serializing_if = "Option::is_none")]

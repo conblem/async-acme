@@ -41,20 +41,20 @@ pub trait AcmeServer: Send + Sync {
 
     async fn new_account(
         &self,
-        req: impl Request<ApiAccount<()>, Jwk<()>>,
-    ) -> Result<(ApiAccount<()>, Uri), Self::Error>;
+        req: impl Request<ApiAccount, Jwk<()>>,
+    ) -> Result<(ApiAccount, Uri), Self::Error>;
 
     async fn get_account(
         &self,
         uri: &Uri,
         req: impl Request<PostAsGet>,
-    ) -> Result<ApiAccount<()>, Self::Error>;
+    ) -> Result<ApiAccount, Self::Error>;
 
     async fn update_account(
         &self,
         uri: &Uri,
-        req: impl Request<ApiAccount<()>>,
-    ) -> Result<ApiAccount<()>, Self::Error>;
+        req: impl Request<ApiAccount<NoExternalAccountBinding>>,
+    ) -> Result<ApiAccount, Self::Error>;
 
     async fn change_key<R: Request<ApiKeyChange<()>>>(
         &self,
@@ -64,13 +64,13 @@ pub trait AcmeServer: Send + Sync {
     async fn new_order(
         &self,
         req: impl Request<ApiNewOrder>,
-    ) -> Result<(ApiOrder<()>, Uri), Self::Error>;
+    ) -> Result<(ApiOrder, Uri), Self::Error>;
 
     async fn get_order(
         &self,
         uri: &Uri,
         req: impl Request<PostAsGet>,
-    ) -> Result<ApiOrder<()>, Self::Error>;
+    ) -> Result<ApiOrder, Self::Error>;
 
     async fn get_authorization(
         &self,
@@ -88,7 +88,7 @@ pub trait AcmeServer: Send + Sync {
         &self,
         uri: &Uri,
         req: impl Request<ApiOrderFinalization>,
-    ) -> Result<ApiOrder<()>, Self::Error>;
+    ) -> Result<ApiOrder, Self::Error>;
 
     async fn download_certificate(
         &self,

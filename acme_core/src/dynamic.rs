@@ -60,9 +60,9 @@ pub trait DynAcmeServer: Send + Sync + 'static {
     #[doc(hidden)]
     async fn new_account_dyn(
         &self,
-        req: DynRequest<'_, ApiAccount<()>, Jwk<()>>,
+        req: DynRequest<'_, ApiAccount, Jwk<()>>,
         _: &dyn Private,
-    ) -> Result<(ApiAccount<()>, Uri), DynError>;
+    ) -> Result<(ApiAccount, Uri), DynError>;
 
     #[doc(hidden)]
     async fn get_account_dyn(
@@ -70,15 +70,15 @@ pub trait DynAcmeServer: Send + Sync + 'static {
         uri: &Uri,
         req: DynRequest<'_, PostAsGet>,
         _: &dyn Private,
-    ) -> Result<ApiAccount<()>, DynError>;
+    ) -> Result<ApiAccount, DynError>;
 
     #[doc(hidden)]
     async fn update_account_dyn(
         &self,
         uri: &Uri,
-        req: DynRequest<'_, ApiAccount<()>>,
+        req: DynRequest<'_, ApiAccount>,
         _: &dyn Private,
-    ) -> Result<ApiAccount<()>, DynError>;
+    ) -> Result<ApiAccount, DynError>;
 
     // use erased serde serialize type here
     async fn change_key_dyn(
@@ -92,7 +92,7 @@ pub trait DynAcmeServer: Send + Sync + 'static {
         &self,
         req: DynRequest<'_, ApiNewOrder>,
         _: &dyn Private,
-    ) -> Result<(ApiOrder<()>, Uri), DynError>;
+    ) -> Result<(ApiOrder, Uri), DynError>;
 
     #[doc(hidden)]
     async fn get_order_dyn(
@@ -100,7 +100,7 @@ pub trait DynAcmeServer: Send + Sync + 'static {
         uri: &Uri,
         req: DynRequest<'_, PostAsGet>,
         _: &dyn Private,
-    ) -> Result<ApiOrder<()>, DynError>;
+    ) -> Result<ApiOrder, DynError>;
 
     #[doc(hidden)]
     async fn get_authorization_dyn(
@@ -124,7 +124,7 @@ pub trait DynAcmeServer: Send + Sync + 'static {
         uri: &Uri,
         req: DynRequest<'_, ApiOrderFinalization>,
         _: &dyn Private,
-    ) -> Result<ApiOrder<()>, DynError>;
+    ) -> Result<ApiOrder, DynError>;
 
     #[doc(hidden)]
     async fn download_certificate_dyn(
@@ -161,9 +161,9 @@ impl<T: AcmeServer + Clone + Debug + Send + Sync + 'static> DynAcmeServer for T 
 
     async fn new_account_dyn(
         &self,
-        req: DynRequest<'_, ApiAccount<()>, Jwk<()>>,
+        req: DynRequest<'_, ApiAccount, Jwk<()>>,
         _: &dyn Private,
-    ) -> Result<(ApiAccount<()>, Uri), DynError> {
+    ) -> Result<(ApiAccount, Uri), DynError> {
         Ok(self.new_account(req).await?)
     }
 
@@ -172,16 +172,16 @@ impl<T: AcmeServer + Clone + Debug + Send + Sync + 'static> DynAcmeServer for T 
         uri: &Uri,
         req: DynRequest<'_, PostAsGet>,
         _: &dyn Private,
-    ) -> Result<ApiAccount<()>, DynError> {
+    ) -> Result<ApiAccount, DynError> {
         Ok(self.get_account(uri, req).await?)
     }
 
     async fn update_account_dyn(
         &self,
         uri: &Uri,
-        req: DynRequest<'_, ApiAccount<()>>,
+        req: DynRequest<'_, ApiAccount>,
         _: &dyn Private,
-    ) -> Result<ApiAccount<()>, DynError> {
+    ) -> Result<ApiAccount, DynError> {
         Ok(self.update_account(uri, req).await?)
     }
 
@@ -198,7 +198,7 @@ impl<T: AcmeServer + Clone + Debug + Send + Sync + 'static> DynAcmeServer for T 
         &self,
         req: DynRequest<'_, ApiNewOrder>,
         _: &dyn Private,
-    ) -> Result<(ApiOrder<()>, Uri), DynError> {
+    ) -> Result<(ApiOrder, Uri), DynError> {
         Ok(self.new_order(req).await?)
     }
 
@@ -207,7 +207,7 @@ impl<T: AcmeServer + Clone + Debug + Send + Sync + 'static> DynAcmeServer for T 
         uri: &Uri,
         req: DynRequest<'_, PostAsGet>,
         _: &dyn Private,
-    ) -> Result<ApiOrder<()>, DynError> {
+    ) -> Result<ApiOrder, DynError> {
         Ok(self.get_order(uri, req).await?)
     }
 
@@ -234,7 +234,7 @@ impl<T: AcmeServer + Clone + Debug + Send + Sync + 'static> DynAcmeServer for T 
         uri: &Uri,
         req: DynRequest<'_, ApiOrderFinalization>,
         _: &dyn Private,
-    ) -> Result<ApiOrder<()>, DynError> {
+    ) -> Result<ApiOrder, DynError> {
         Ok(self.finalize(uri, req).await?)
     }
 
@@ -283,8 +283,8 @@ impl AcmeServer for dyn DynAcmeServer {
 
     async fn new_account(
         &self,
-        req: impl Request<ApiAccount<()>, Jwk<()>>,
-    ) -> Result<(ApiAccount<()>, Uri), Self::Error> {
+        req: impl Request<ApiAccount, Jwk<()>>,
+    ) -> Result<(ApiAccount, Uri), Self::Error> {
         Ok(self
             .new_account_dyn(req.as_dyn_request(), &PrivateImpl)
             .await?)
@@ -294,7 +294,7 @@ impl AcmeServer for dyn DynAcmeServer {
         &self,
         uri: &Uri,
         req: impl Request<PostAsGet>,
-    ) -> Result<ApiAccount<()>, Self::Error> {
+    ) -> Result<ApiAccount, Self::Error> {
         Ok(self
             .get_account_dyn(uri, req.as_dyn_request(), &PrivateImpl)
             .await?)
@@ -303,8 +303,8 @@ impl AcmeServer for dyn DynAcmeServer {
     async fn update_account(
         &self,
         uri: &Uri,
-        req: impl Request<ApiAccount<()>>,
-    ) -> Result<ApiAccount<()>, Self::Error> {
+        req: impl Request<ApiAccount>,
+    ) -> Result<ApiAccount, Self::Error> {
         Ok(self
             .update_account_dyn(uri, req.as_dyn_request(), &PrivateImpl)
             .await?)
@@ -339,7 +339,7 @@ impl AcmeServer for dyn DynAcmeServer {
     async fn new_order(
         &self,
         req: impl Request<ApiNewOrder>,
-    ) -> Result<(ApiOrder<()>, Uri), Self::Error> {
+    ) -> Result<(ApiOrder, Uri), Self::Error> {
         Ok(self
             .new_order_dyn(req.as_dyn_request(), &PrivateImpl)
             .await?)
@@ -349,7 +349,7 @@ impl AcmeServer for dyn DynAcmeServer {
         &self,
         uri: &Uri,
         req: impl Request<PostAsGet>,
-    ) -> Result<ApiOrder<()>, Self::Error> {
+    ) -> Result<ApiOrder, Self::Error> {
         Ok(self
             .get_order_dyn(uri, req.as_dyn_request(), &PrivateImpl)
             .await?)
@@ -379,7 +379,7 @@ impl AcmeServer for dyn DynAcmeServer {
         &self,
         uri: &Uri,
         req: impl Request<ApiOrderFinalization>,
-    ) -> Result<ApiOrder<()>, Self::Error> {
+    ) -> Result<ApiOrder, Self::Error> {
         Ok(self
             .finalize_dyn(uri, req.as_dyn_request(), &PrivateImpl)
             .await?)
@@ -437,8 +437,8 @@ mod tests {
 
         async fn new_account(
             &self,
-            _req: impl Request<ApiAccount<()>, Jwk<()>>,
-        ) -> Result<(ApiAccount<()>, Uri), Self::Error> {
+            _req: impl Request<ApiAccount, Jwk<()>>,
+        ) -> Result<(ApiAccount, Uri), Self::Error> {
             todo!()
         }
 
@@ -446,15 +446,15 @@ mod tests {
             &self,
             _uri: &Uri,
             _req: impl Request<PostAsGet>,
-        ) -> Result<ApiAccount<()>, Self::Error> {
+        ) -> Result<ApiAccount, Self::Error> {
             todo!()
         }
 
         async fn update_account(
             &self,
             _uri: &Uri,
-            _req: impl Request<ApiAccount<()>>,
-        ) -> Result<ApiAccount<()>, Self::Error> {
+            _req: impl Request<ApiAccount>,
+        ) -> Result<ApiAccount, Self::Error> {
             todo!()
         }
 
@@ -468,7 +468,7 @@ mod tests {
         async fn new_order(
             &self,
             _req: impl Request<ApiNewOrder>,
-        ) -> Result<(ApiOrder<()>, Uri), Self::Error> {
+        ) -> Result<(ApiOrder, Uri), Self::Error> {
             todo!()
         }
 
@@ -476,7 +476,7 @@ mod tests {
             &self,
             _uri: &Uri,
             _req: impl Request<PostAsGet>,
-        ) -> Result<ApiOrder<()>, Self::Error> {
+        ) -> Result<ApiOrder, Self::Error> {
             todo!()
         }
 
@@ -500,7 +500,7 @@ mod tests {
             &self,
             _uri: &Uri,
             _req: impl Request<ApiOrderFinalization>,
-        ) -> Result<ApiOrder<()>, Self::Error> {
+        ) -> Result<ApiOrder, Self::Error> {
             todo!()
         }
 

@@ -73,7 +73,7 @@ pub enum RingCryptoError {
     #[error("Invalid Key {0}")]
     InvalidKey(KeyRejected),
     #[error("Public key has invalid lenght of {0}")]
-    InvalidPublicKeyLenght(usize),
+    InvalidPublicKeyLength(usize),
     #[error("Public key uses invalid compression format {0}")]
     WrongCompressionFormat(u8),
     #[error("Invalid Base64 length {1} on public key part {0}")]
@@ -175,7 +175,7 @@ impl RingKeyPair {
         let public = <EcdsaKeyPair as ring::signature::KeyPair>::public_key(&key_pair).as_ref();
         match public.len() {
             97 => {}
-            len => return Err(RingCryptoError::InvalidPublicKeyLenght(len)),
+            len => return Err(RingCryptoError::InvalidPublicKeyLength(len)),
         }
 
         // split public into [0..48][49..96]
