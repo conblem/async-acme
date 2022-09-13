@@ -70,14 +70,18 @@ pub trait Request<B, K: KeyType = Kid, N: NonceType = NoNonce>:
 {
     // todo: make private
     fn as_dyn_request(&self) -> DynRequest<'_, B, K, N>;
+
+    fn protected_as_any(&self) -> &(dyn Any + Send + Sync);
+
+    fn signer_as_any(&self) -> &(dyn Any + Send + Sync);
 }
 
 // maybe does not need to be public
 pub struct RequestImpl<'a, K, N, P, B, S: ?Sized> {
     pub(crate) phantom: PhantomData<(K, N)>,
     pub(crate) protected: P,
-    pub(crate) payload: B,
-    pub(crate) signer: S,
+    pub(crate) payload: &'a B,
+    pub(crate) signer: &'a S,
 }
 
 impl<
@@ -129,6 +133,14 @@ impl<
             signer_any: signer.deref(),
         }
     }
+
+    fn protected_as_any(&self) -> &(dyn Any + Send + Sync) {
+        &self.protected
+    }
+
+    fn signer_as_any(&self) -> &(dyn Any + Send + Sync) {
+        self.signer
+    }
 }
 
 impl<'a, K: KeyType, N: NonceType, P: Protected<K, N>, B: Serialize, S: Signer + ?Sized>
@@ -166,15 +178,7 @@ pub struct DynRequest<'a, B, K: KeyType = Kid, N: NonceType = NoNonce> {
     pub(crate) signer_any: &'a (dyn Any + Send + Sync),
 }
 
-impl<B, K: KeyType, N: NonceType> DynRequest<'_, B, K, N> {
-    pub fn protected_as_any(&self) -> &dyn Any {
-        self.protected_any
-    }
-
-    pub fn signer_as_any(&self) -> &dyn Any {
-        self.signer_any
-    }
-}
+impl<B, K: KeyType, N: NonceType> DynRequest<'_, B, K, N> {}
 
 impl<'a, B: Serialize, K: KeyType, N: NonceType> Request<B, K, N> for DynRequest<'a, B, K, N> {
     fn as_dyn_request(&self) -> DynRequest<'_, B, K, N> {
@@ -201,6 +205,14 @@ impl<'a, B: Serialize, K: KeyType, N: NonceType> Request<B, K, N> for DynRequest
             protected_any: protected_any.deref(),
             signer_any: signer_any.deref(),
         }
+    }
+
+    fn protected_as_any(&self) -> &(dyn Any + Send + Sync) {
+        self.protected_any
+    }
+
+    fn signer_as_any(&self) -> &(dyn Any + Send + Sync) {
+        self.signer_any
     }
 }
 
