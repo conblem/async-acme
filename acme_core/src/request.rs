@@ -1,11 +1,43 @@
 use crate::Uri;
 use base64::URL_SAFE_NO_PAD;
+use ref_cast::RefCast;
 use serde::de::Error as DeError;
 use serde::ser::SerializeStruct;
 use serde::{Deserialize, Deserializer, Serializer};
 use std::any::Any;
 use std::marker::PhantomData;
 use std::ops::Deref;
+
+pub struct PostAsGet;
+
+impl serde::Serialize for PostAsGet {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        "".serialize(serializer)
+    }
+}
+
+pub enum NoExternalAccountBinding {}
+
+impl serde::Serialize for NoExternalAccountBinding {
+    fn serialize<S>(&self, _: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        match *self {}
+    }
+}
+
+impl<'de> Deserialize<'de> for NoExternalAccountBinding {
+    fn deserialize<D>(_: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        Err(DeError::custom("NoExternalAccountBinding cannot be deserialized and should always be used in conjunction with Option"))
+    }
+}
 
 trait Serialize: serde::Serialize + Send + Sync {}
 
@@ -44,8 +76,8 @@ pub trait Request<B, K: KeyType = Kid, N: NonceType = NoNonce>:
 pub struct RequestImpl<'a, K, N, P, B, S: ?Sized> {
     pub(crate) phantom: PhantomData<(K, N)>,
     pub(crate) protected: P,
-    pub(crate) payload: &'a B,
-    pub(crate) signer: &'a S,
+    pub(crate) payload: B,
+    pub(crate) signer: S,
 }
 
 impl<
@@ -84,17 +116,12 @@ impl<
             ..
         } = self;
 
-        let dyn_protected = DynProtected {
-            alg: protected.alg(),
-            url: protected.url(),
-            key: protected.key(),
-            nonce: protected.nonce(),
-        };
+        let protected = DynProtectedImpl::ref_cast(protected);
 
         DynRequest {
             inner: RequestImpl {
                 phantom: PhantomData,
-                protected: ProtectedCow::Owned(dyn_protected),
+                protected,
                 payload,
                 signer: signer.deref(),
             },
@@ -134,8 +161,7 @@ fn base64_and_serialize<T: Serialize + ?Sized>(input: &T) -> String {
 }
 
 pub struct DynRequest<'a, B, K: KeyType = Kid, N: NonceType = NoNonce> {
-    pub(crate) inner:
-        RequestImpl<'a, K, N, ProtectedCow<'a, DynProtected<'a, K, N>>, B, dyn Signer>,
+    pub(crate) inner: RequestImpl<'a, K, N, &'a dyn DynProtected, B, dyn Signer>,
     pub(crate) protected_any: &'a (dyn Any + Send + Sync),
     pub(crate) signer_any: &'a (dyn Any + Send + Sync),
 }
@@ -165,15 +191,10 @@ impl<'a, B: Serialize, K: KeyType, N: NonceType> Request<B, K, N> for DynRequest
             ..
         } = inner;
 
-        let protected = match protected {
-            ProtectedCow::Borrowed(protected) => protected.deref(),
-            ProtectedCow::Owned(protected) => protected,
-        };
-
         DynRequest {
             inner: RequestImpl {
                 phantom: PhantomData,
-                protected: ProtectedCow::Borrowed(protected),
+                protected: protected.deref(),
                 payload,
                 signer: signer.deref(),
             },
@@ -183,7 +204,7 @@ impl<'a, B: Serialize, K: KeyType, N: NonceType> Request<B, K, N> for DynRequest
     }
 }
 
-impl<'a, B: Serialize, K: KeyType, N: NonceType> serde::Serialize for DynRequest<'a, B, K, N> {
+impl<B: Serialize, K: KeyType, N: NonceType> serde::Serialize for DynRequest<'_, B, K, N> {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
         S: Serializer,
@@ -202,98 +223,130 @@ impl<T: Signer + ?Sized> Signer for &T {
     }
 }
 
-pub trait KeyType: sealed::Sealed + Send + Sync + 'static {
-    type Key: serde::Serialize + Send + Sync;
-}
-
-pub struct Kid(&'static dyn Private);
-impl KeyType for Kid {
-    type Key = Uri;
-}
-
-pub struct Jwk<T>(PhantomData<T>, &'static dyn Private);
-impl<T: Serialize + 'static> KeyType for Jwk<T> {
-    type Key = T;
-}
-
-pub trait NonceType: Sized + sealed::Sealed + Send + Sync + 'static {
-    type Nonce: serde::Serialize + Send + Sync + 'static;
-}
-
-pub struct Nonce(&'static dyn Private);
-impl NonceType for Nonce {
-    type Nonce = ();
-}
-
-pub struct NoNonce(&'static dyn Private);
-impl NonceType for NoNonce {
-    type Nonce = String;
-}
-
 pub trait Protected<K: KeyType, N: NonceType>: Send + Sync {
     fn alg(&self) -> &str;
-    fn key(&self) -> &K::Key;
-    fn nonce(&self) -> &N::Nonce;
+    fn key(&self) -> &K;
+    fn nonce(&self) -> &N;
     fn url(&self) -> &Uri;
 }
 
-pub(crate) struct DynProtected<'a, K: KeyType, N: NonceType> {
-    nonce: &'a N::Nonce,
-    key: &'a K::Key,
-    alg: &'a str,
-    url: &'a Uri,
+trait JwkKey: Send + Sync + 'static {
+    fn crv(&self) -> &str;
+    fn kty(&self) -> &str;
+    fn x(&self) -> &str;
+    fn y(&self) -> &str;
 }
 
-impl<K: KeyType, N: NonceType> Protected<K, N> for DynProtected<'_, K, N> {
+// todo: remove this
+impl JwkKey for () {
+    fn crv(&self) -> &str {
+        todo!()
+    }
+
+    fn kty(&self) -> &str {
+        todo!()
+    }
+
+    fn x(&self) -> &str {
+        todo!()
+    }
+
+    fn y(&self) -> &str {
+        todo!()
+    }
+}
+
+pub trait KeyType: sealed::Sealed + serde::Serialize + Send + Sync + 'static {}
+
+pub struct Jwk<T>(T);
+
+impl<T: JwkKey> KeyType for Jwk<T> {}
+
+impl<T: JwkKey> serde::Serialize for Jwk<T> {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        let mut jwk = serializer.serialize_struct("Jwk", 4)?;
+        jwk.serialize_field("crv", self.0.crv())?;
+        jwk.serialize_field("kty", self.0.kty())?;
+        jwk.serialize_field("x", self.0.x())?;
+        jwk.serialize_field("y", self.0.y())?;
+
+        jwk.end()
+    }
+}
+
+pub struct Kid(String);
+
+impl KeyType for Kid {}
+
+impl serde::Serialize for Kid {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        self.0.serialize(serializer)
+    }
+}
+
+pub trait NonceType: sealed::Sealed + Send + Sync + 'static {}
+
+pub struct NoNonce;
+
+impl NonceType for NoNonce {}
+
+pub struct Nonce(pub String);
+
+impl NonceType for Nonce {}
+
+pub trait DynProtected: Send + Sync {
+    fn dyn_alg(&self) -> &str;
+    fn dyn_key(&self) -> &dyn Any;
+    fn dyn_nonce(&self) -> &dyn Any;
+    fn dyn_url(&self) -> &Uri;
+}
+
+impl<K: KeyType, N: NonceType> Protected<K, N> for &'_ dyn DynProtected {
     fn alg(&self) -> &str {
-        self.alg
+        self.dyn_alg()
     }
 
-    fn key(&self) -> &K::Key {
-        self.key
+    fn key(&self) -> &K {
+        self.dyn_key().downcast_ref::<K>().unwrap()
     }
 
-    fn nonce(&self) -> &N::Nonce {
-        self.nonce
+    fn nonce(&self) -> &N {
+        self.dyn_nonce().downcast_ref::<N>().unwrap()
     }
 
     fn url(&self) -> &Uri {
-        self.url
+        self.dyn_url()
     }
 }
 
-pub(crate) enum ProtectedCow<'a, T> {
-    Borrowed(&'a T),
-    Owned(T),
+#[derive(RefCast)]
+#[repr(transparent)]
+struct DynProtectedImpl<K: KeyType, N: NonceType, T: Protected<K, N>> {
+    inner: T,
+    phantom: PhantomData<(K, N)>,
 }
 
-impl<K: KeyType, N: NonceType, T: Protected<K, N>> Protected<K, N> for ProtectedCow<'_, T> {
-    fn alg(&self) -> &str {
-        match self {
-            ProtectedCow::Borrowed(this) => this.alg(),
-            ProtectedCow::Owned(this) => this.alg(),
-        }
+impl<K: KeyType, N: NonceType, T: Protected<K, N>> DynProtected for DynProtectedImpl<K, N, T> {
+    fn dyn_alg(&self) -> &str {
+        self.inner.alg()
     }
 
-    fn key(&self) -> &K::Key {
-        match self {
-            ProtectedCow::Borrowed(this) => this.key(),
-            ProtectedCow::Owned(this) => this.key(),
-        }
+    fn dyn_key(&self) -> &dyn Any {
+        self.inner.key()
     }
 
-    fn nonce(&self) -> &N::Nonce {
-        match self {
-            ProtectedCow::Borrowed(this) => this.nonce(),
-            ProtectedCow::Owned(this) => this.nonce(),
-        }
+    fn dyn_nonce(&self) -> &dyn Any {
+        self.inner.nonce()
     }
 
-    fn url(&self) -> &Uri {
-        match self {
-            ProtectedCow::Borrowed(this) => this.url(),
-            ProtectedCow::Owned(this) => this.url(),
-        }
+    fn dyn_url(&self) -> &Uri {
+        self.inner.url()
     }
 }
 
@@ -306,11 +359,7 @@ impl<'a, K: KeyType, N: NonceType, P: Protected<K, N>> serde::Serialize
     where
         S: Serializer,
     {
-        let nonce = match <dyn Any>::downcast_ref::<N>(&NoNonce(&PrivateImpl)) {
-            // N is NoNonce
-            Some(_) => None,
-            None => Some(self.0.nonce()),
-        };
+        let nonce = <dyn Any>::downcast_ref::<Nonce>(self.0.nonce());
 
         let mut protected = match nonce {
             // if we have a nonce an additional field will be present
@@ -320,57 +369,19 @@ impl<'a, K: KeyType, N: NonceType, P: Protected<K, N>> serde::Serialize
 
         protected.serialize_field("alg", self.0.alg())?;
 
-        match <dyn Any>::downcast_ref::<K>(&Kid(&PrivateImpl)) {
+        match <dyn Any>::downcast_ref::<Kid>(self.0.key()) {
             // K is Kid
             Some(_) => protected.serialize_field("kid", self.0.key())?,
             None => protected.serialize_field("jwk", self.0.key())?,
         };
 
         // serialize the additional nonce field
-        if let Some(nonce) = nonce {
-            protected.serialize_field("nonce", nonce)?;
+        if let Some(Nonce(nonce)) = nonce {
+            protected.serialize_field("nonce", &nonce)?;
         }
 
         protected.serialize_field("url", self.0.url())?;
 
         protected.end()
     }
-}
-
-pub struct PostAsGet;
-
-impl serde::Serialize for PostAsGet {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: Serializer,
-    {
-        "".serialize(serializer)
-    }
-}
-
-pub enum NoExternalAccountBinding {}
-
-impl serde::Serialize for NoExternalAccountBinding {
-    fn serialize<S>(&self, _: S) -> Result<S::Ok, S::Error>
-    where
-        S: Serializer,
-    {
-        match *self {}
-    }
-}
-
-impl<'de> Deserialize<'de> for NoExternalAccountBinding {
-    fn deserialize<D>(_: D) -> Result<Self, D::Error>
-    where
-        D: Deserializer<'de>,
-    {
-        Err(DeError::custom("NoExternalAccountBinding cannot be deserialized and should always be used in conjunction with Option"))
-    }
-}
-
-trait JwkKey: Send + Sync {
-    fn crg(&self) -> &str;
-    fn kty(&self) -> &str;
-    fn x(&self) -> &str;
-    fn y(&self) -> &str;
 }

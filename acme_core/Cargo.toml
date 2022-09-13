@@ -12,6 +12,7 @@ http = "0.2"
 time = { version = "0.3", features = ["serde-well-known"] }
 serde_json = "1"
 base64 = "0.13"
+ref-cast = "1.0"
 
 [dev-dependencies]
 serde_test = "1"
