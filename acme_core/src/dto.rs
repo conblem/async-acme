@@ -1,4 +1,3 @@
-use crate::NoExternalAccountBinding;
 use http::uri::InvalidUri;
 use serde::de::{self, Error as DeError, Visitor};
 use serde::ser::SerializeStruct;
@@ -491,13 +490,44 @@ pub struct ApiKeyChange<K> {
     old_key: K,
 }
 
+pub struct PostAsGet;
+
+impl serde::Serialize for PostAsGet {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        "".serialize(serializer)
+    }
+}
+
+pub enum NoExternalAccountBinding {}
+
+impl serde::Serialize for NoExternalAccountBinding {
+    fn serialize<S>(&self, _: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        match *self {}
+    }
+}
+
+impl<'de> Deserialize<'de> for NoExternalAccountBinding {
+    fn deserialize<D>(_: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        Err(DeError::custom("NoExternalAccountBinding cannot be deserialized and should always be used in conjunction with Option"))
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use serde_test::{assert_tokens, Token};
 
     use super::*;
 
-    const URIS: [&'static str; 4] = [
+    const URIS: [&str; 4] = [
         "https://google.com",
         "http://google.com",
         "https://google.com/test",

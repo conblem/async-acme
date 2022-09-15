@@ -1,7 +1,9 @@
-use crate::{
-    AcmeServer, AcmeServerBuilder, ApiAccount, ApiAuthorization, ApiChallenge, ApiDirectory,
-    ApiKeyChange, ApiNewOrder, ApiOrder, ApiOrderFinalization, Jwk, PostAsGet, Request, Uri,
+use super::{AcmeServer, AcmeServerBuilder};
+use crate::dto::{
+    ApiAccount, ApiAuthorization, ApiChallenge, ApiDirectory, ApiKeyChange, ApiNewOrder, ApiOrder,
+    ApiOrderFinalization, PostAsGet, Uri,
 };
+use crate::request::{Jwk, Request};
 use async_trait::async_trait;
 use std::convert::Infallible;
 
